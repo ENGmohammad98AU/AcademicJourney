@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -31,6 +32,7 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.academicjourney.app.R
@@ -317,10 +319,17 @@ private fun UniversityScreen(
     onBack: () -> Unit,
     onProgram: (Long) -> Unit
 ) {
+    val visiblePrograms = programs.distinctBy { it.name.trim() }
     Scaffold(topBar = { TopAppBar(title = { Text(university?.name ?: "الجامعة", fontWeight = FontWeight.Bold) }, navigationIcon = { BackButton(onBack) }) }) { padding ->
-        LazyColumn(Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 16.dp)) {
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(2),
+            modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 12.dp),
+            contentPadding = PaddingValues(vertical = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
             university?.let { u ->
-                item {
+                item(span = { GridItemSpan(maxLineSpan) }) {
                     ElevatedCard(Modifier.fillMaxWidth()) {
                         Image(
                             painter = painterResource(universityLogo(u.name)),
@@ -331,10 +340,10 @@ private fun UniversityScreen(
                     }
                 }
             }
-            item {
-                val programIds = programs.map { it.id }.toSet()
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                val programIds = visiblePrograms.map { it.id }.toSet()
                 val universityCourses = courses.filter { it.programId in programIds }
-                val passed = universityCourses.count { c -> programs.firstOrNull { it.id == c.programId }?.let { GradeCalculator.calculate(c, it).isPassed == true } == true }
+                val passed = universityCourses.count { c -> visiblePrograms.firstOrNull { it.id == c.programId }?.let { GradeCalculator.calculate(c, it).isPassed == true } == true }
                 ElevatedCard(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text("التقدم في الجامعة", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -343,8 +352,10 @@ private fun UniversityScreen(
                     }
                 }
             }
-            item { SectionHeader("البرامج", "اختر البرنامج لعرض سنواته وفصوله ومقرراته") }
-            items(programs, key = { it.id }) { p ->
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                SectionHeader("البرامج", "اختر البرنامج لعرض سنواته وفصوله ومقرراته")
+            }
+            items(visiblePrograms, key = { it.name }) { p ->
                 val pc = courses.filter { it.programId == p.id }
                 val graded = pc.mapNotNull { GradeCalculator.calculate(it, p).finalGrade }
                 val passed = pc.count { GradeCalculator.calculate(it, p).isPassed == true }
@@ -373,7 +384,7 @@ private fun ProgramImageCard(
     val progress = if (courseCount == 0) 0f else passedCount.toFloat() / courseCount.toFloat()
     ElevatedCard(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
         Column {
-            Box(Modifier.fillMaxWidth().height(176.dp)) {
+            Box(Modifier.fillMaxWidth().height(154.dp)) {
                 Image(
                     painter = painterResource(programImage(program.name)),
                     contentDescription = "صورة برنامج ${program.name}",
@@ -389,22 +400,29 @@ private fun ProgramImageCard(
                     )
                 )
                 Column(
-                    Modifier.align(Alignment.BottomStart).padding(16.dp),
+                    Modifier.align(Alignment.BottomStart).padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(3.dp)
                 ) {
-                    Text(program.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black, color = Color.White)
+                    Text(
+                        program.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Black,
+                        color = Color.White,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis
+                    )
                     if (program.degreeType.isNotBlank()) {
-                        Text(program.degreeType, style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.88f))
+                        Text(program.degreeType, style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.88f))
                     }
                 }
             }
-            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("$courseCount مقرر • $gradedCount مُقيّم", style = MaterialTheme.typography.bodySmall, maxLines = 1)
                 Row(Modifier.fillMaxWidth()) {
-                    Text("$courseCount مقرر • $gradedCount مُقيّم", modifier = Modifier.weight(1f))
-                    Text(average?.let { "${formatGrade(it)}%" } ?: "—", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Text("$passedCount ناجحة", modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelSmall)
+                    Text(average?.let { "${formatGrade(it)}%" } ?: "—", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                 }
                 LinearProgressIndicator(progress = { progress.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
-                Text("$passedCount مادة ناجحة من $courseCount", style = MaterialTheme.typography.labelSmall)
             }
         }
     }
