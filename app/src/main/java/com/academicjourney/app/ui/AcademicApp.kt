@@ -702,11 +702,13 @@ private fun AcademicProgressRing(
 ) {
     val progress = if (total > 0) passed.toFloat() / total.toFloat() else 0f
     val percent = (progress * 100f).roundToInt()
+    val trackColor = MaterialTheme.colorScheme.surfaceVariant
+    val progressColor = MaterialTheme.colorScheme.primary
     Box(modifier = modifier.size(88.dp), contentAlignment = Alignment.Center) {
         Canvas(modifier = Modifier.matchParentSize()) {
             val stroke = 9.dp.toPx()
             drawArc(
-                color = MaterialTheme.colorScheme.surfaceVariant,
+                color = trackColor,
                 startAngle = -90f,
                 sweepAngle = 360f,
                 useCenter = false,
@@ -715,7 +717,7 @@ private fun AcademicProgressRing(
                 style = Stroke(width = stroke, cap = StrokeCap.Round)
             )
             drawArc(
-                color = MaterialTheme.colorScheme.primary,
+                color = progressColor,
                 startAngle = -90f,
                 sweepAngle = 360f * progress.coerceIn(0f, 1f),
                 useCenter = false,
