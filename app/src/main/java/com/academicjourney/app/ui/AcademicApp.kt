@@ -239,7 +239,7 @@ private fun IntroVideoScreen(onFinished: () -> Unit) {
                 )
             )
         )
-        TextButton(
+        InteractiveTextButton(
             onClick = finishOnce,
             modifier = Modifier.align(Alignment.TopStart).padding(16.dp)
         ) {
@@ -252,8 +252,29 @@ private fun IntroVideoScreen(onFinished: () -> Unit) {
         ) {
             Text("مسيرتي الأكاديمية", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Black, color = Color.White)
             Text("جامعاتك ودرجاتك وتقدمك في مكان واحد", style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.9f))
+            Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                IntroFeaturePill("الجامعات")
+                IntroFeaturePill("الدرجات")
+                IntroFeaturePill("التقارير")
+            }
             Text("الإصدار ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.75f))
         }
+    }
+}
+
+@Composable
+private fun IntroFeaturePill(label: String) {
+    Surface(
+        color = Color.White.copy(alpha = 0.16f),
+        contentColor = Color.White,
+        shape = RoundedCornerShape(50)
+    ) {
+        Text(
+            label,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold
+        )
     }
 }
 
@@ -459,7 +480,7 @@ private fun HighSchoolBranchCard(
     percentage: Double,
     onClick: () -> Unit
 ) {
-    InteractiveElevatedCard(onClick = onClick, modifier = Modifier.fillMaxWidth().height(242.dp)) {
+    InteractiveElevatedCard(onClick = onClick, modifier = Modifier.fillMaxWidth().height(274.dp)) {
         Column {
             Box(Modifier.fillMaxWidth().weight(1f)) {
                 Image(
@@ -478,13 +499,22 @@ private fun HighSchoolBranchCard(
                     Text(year, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black, color = Color.White)
                 }
             }
-            Text(
-                "النسبة الحالية: ${formatGrade(percentage)}%",
-                modifier = Modifier.padding(12.dp),
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("النسبة الحالية", style = MaterialTheme.typography.labelSmall)
+                    Text(
+                        "${formatGrade(percentage)}%",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Black,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+                PercentageRing(percentage = percentage, modifier = Modifier.size(58.dp))
+            }
         }
     }
 }
@@ -514,29 +544,38 @@ private fun HighSchoolBranchScreen(
         }
     ) { padding ->
         LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp),
-            contentPadding = PaddingValues(vertical = 16.dp),
+            modifier = Modifier.fillMaxSize().padding(padding).imePadding().padding(horizontal = 16.dp),
+            contentPadding = PaddingValues(top = 16.dp, bottom = 96.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item {
                 ElevatedCard(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text("النتيجة الحالية", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            MetricBox("المجموع", total.toString(), Modifier.weight(1f))
-                            MetricBox("العظمى", maximum.toString(), Modifier.weight(1f))
-                            MetricBox("النسبة", "${formatGrade(highSchoolPercentage(grades))}%", Modifier.weight(1f))
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(14.dp)
+                        ) {
+                            PercentageRing(summary.percentage, Modifier.size(96.dp))
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("النتيجة الحالية", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    MetricBox("المجموع", total.toString(), Modifier.weight(1f))
+                                    MetricBox("العظمى", maximum.toString(), Modifier.weight(1f))
+                                }
+                                Text(
+                                    "النسبة العامة: ${formatGrade(summary.percentage)}%",
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
                         }
-                        LinearProgressIndicator(
-                            progress = { if (maximum == 0) 0f else (total.toFloat() / maximum).coerceIn(0f, 1f) },
-                            modifier = Modifier.fillMaxWidth()
-                        )
                         Text(
                             "لا يدخل في حساب النسبة: $excludedNames.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        Button(
+                        InteractiveButton(
                             onClick = { ReportPrinter.printHighSchoolReport(context, branchTitle, grades) },
                             modifier = Modifier.fillMaxWidth()
                         ) {
@@ -563,6 +602,8 @@ private fun SubjectGradeCard(
 ) {
     var value by remember(item.id, item.grade) { mutableStateOf(item.grade?.toString().orEmpty()) }
     var inputError by remember(item.id) { mutableStateOf<String?>(null) }
+    val enteredGrade = value.toIntOrNull()?.takeIf { it in 0..item.maxGrade }
+    val subjectPercentage = HighSchoolCalculator.subjectPercentage(item.copy(grade = enteredGrade))
     ElevatedCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -612,6 +653,26 @@ private fun SubjectGradeCard(
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next)
             )
+            if (subjectPercentage != null) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    PercentageRing(subjectPercentage, Modifier.size(58.dp))
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                        Text(
+                            "نسبة المادة: ${formatGrade(subjectPercentage)}%",
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        LinearProgressIndicator(
+                            progress = { (subjectPercentage / 100.0).toFloat().coerceIn(0f, 1f) },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -748,6 +809,13 @@ private fun programImage(name: String): Int = when {
 private fun courseImage(course: CourseEntity, program: ProgramEntity): Int {
     val name = course.name
     return when {
+        "إدارة المؤسسات الإعلامية" in name -> R.drawable.course_media_management
+        listOf("رياضيات", "الرياضيات", "إحصاء", "الاحصاء", "احتمالات").any { it in name } ->
+            R.drawable.course_math
+        listOf("فيزياء", "الفيزياء", "ميكانيك", "ترموديناميك", "كهرومغناطيس").any { it in name } ->
+            R.drawable.course_physics
+        listOf("اللغة", "إنكليز", "انكليز", "فرنسي", "مصطلحات").any { it in name } ->
+            R.drawable.course_language
         listOf("إعلام", "صحافة", "اتصال", "إذاعة", "تلفزيون", "سينما", "تحرير").any { it in name } ->
             R.drawable.program_media
         listOf("حاسوب", "حواسب", "برمج", "خوارزم", "شبكات", "ويب", "معلومات", "ذكاء صنعي").any { it in name } ->
@@ -968,7 +1036,7 @@ private fun ProgramScreen(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        Button(
+                        InteractiveButton(
                             onClick = {
                                 ReportPrinter.printProgramReport(
                                     context = context,
@@ -982,6 +1050,29 @@ private fun ProgramScreen(
                             Text("طباعة أو حفظ تقرير PDF", fontWeight = FontWeight.Bold)
                         }
                     }
+                }
+            }
+
+            if (universityName.contains("الأندلس")) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    AcademicNoticeCard(
+                        "تنويه جامعة الأندلس: مقرر اللغة الإنكليزية التكميلية (1) تابع للسنة الرابعة، " +
+                            "ومقرر اللغة الإنكليزية التكميلية (2) تابع للسنة الخامسة."
+                    )
+                }
+            }
+            if (program.gradingScheme == GradeCalculator.SVU_WEIGHTED) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    AcademicNoticeCard(
+                        "تنويه الجامعة الافتراضية: الأحرف والرموز الإنجليزية المعروضة تحت اسم المادة هي رمز المقرر."
+                    )
+                }
+            }
+            if (universityName.contains("دمشق")) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    AcademicNoticeCard(
+                        "جامعة دمشق: افتح أي مقرر لإضافة رقم المقرر أو تعديله، وسيظهر الرقم في البطاقة والبحث وتقرير PDF."
+                    )
                 }
             }
 
@@ -1218,10 +1309,10 @@ private fun SemesterScreen(program: ProgramEntity?, year: Int, semester: Int, co
     Scaffold(topBar = { TopAppBar(title = { Text("السنة ${arabicOrdinal(year)} • الفصل ${if (semester == 1) "الأول" else "الثاني"}", fontWeight = FontWeight.Bold) }, navigationIcon = { BackButton(onBack) }) }) { padding ->
         LazyVerticalGrid(
             columns = GridCells.Fixed(2),
-            modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 12.dp),
+            modifier = Modifier.fillMaxSize().padding(padding).imePadding().padding(horizontal = 12.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
-            contentPadding = PaddingValues(vertical = 16.dp)
+            contentPadding = PaddingValues(top = 16.dp, bottom = 96.dp)
         ) {
             item(span = { GridItemSpan(maxLineSpan) }) {
                 ElevatedCard(Modifier.fillMaxWidth()) {
@@ -1345,7 +1436,11 @@ private fun CourseScreen(
     var courseNumberSaved by remember(course.id) { mutableStateOf(false) }
 
     Scaffold(topBar = { TopAppBar(title = { Text("تفاصيل المادة", fontWeight = FontWeight.Bold) }, navigationIcon = { BackButton(onBack) }) }) { padding ->
-        LazyColumn(Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 16.dp)) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(padding).imePadding().padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(top = 16.dp, bottom = 112.dp)
+        ) {
             item {
                 ElevatedCard(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
@@ -1382,7 +1477,7 @@ private fun CourseScreen(
                                 label = { Text("رقم المقرر") },
                                 singleLine = true
                             )
-                            Button(
+                            InteractiveButton(
                                 onClick = {
                                     onSave(course.copy(code = courseNumber.trim()))
                                     courseNumberSaved = true
@@ -1407,7 +1502,7 @@ private fun CourseScreen(
                             modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp),
                             placeholder = { Text("أضف أي ملاحظة عن المادة، الامتحان أو الدراسة...") }
                         )
-                        Button(
+                        InteractiveButton(
                             onClick = { onSave(course.copy(notes = notes)); noteSaved = true },
                             modifier = Modifier.fillMaxWidth()
                         ) { Text("حفظ الملاحظة") }
@@ -1563,9 +1658,9 @@ private fun HighSchoolStatisticsCard(
     totalSubjects: Int,
     onClick: () -> Unit
 ) {
-    InteractiveElevatedCard(onClick = onClick, modifier = Modifier.fillMaxWidth().heightIn(min = 260.dp)) {
+    InteractiveElevatedCard(onClick = onClick, modifier = Modifier.fillMaxWidth().heightIn(min = 292.dp)) {
         Column {
-            Box(Modifier.fillMaxWidth().height(140.dp)) {
+            Box(Modifier.fillMaxWidth().height(128.dp)) {
                 Image(
                     painter = painterResource(R.drawable.home_high_school),
                     contentDescription = "إحصائيات الشهادة الثانوية",
@@ -1587,8 +1682,19 @@ private fun HighSchoolStatisticsCard(
             }
             Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text("$enteredGrades/$totalSubjects درجة مدخلة", style = MaterialTheme.typography.labelSmall)
-                Text("العلمي 2016: ${formatGrade(scientificPercentage)}%", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-                Text("الأدبي 2026: ${formatGrade(literaryPercentage)}%", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                        PercentageRing(scientificPercentage, Modifier.size(58.dp))
+                        Text("العلمي 2016", style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                    }
+                    Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                        PercentageRing(literaryPercentage, Modifier.size(58.dp))
+                        Text("الأدبي 2026", style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                    }
+                }
                 Text("اضغط لعرض تفاصيل الفرعين", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
             }
         }
@@ -1597,7 +1703,24 @@ private fun HighSchoolStatisticsCard(
 
 @Composable
 private fun BackButton(onBack: () -> Unit) {
-    TextButton(onClick = onBack) { Text("‹ رجوع", fontWeight = FontWeight.Bold) }
+    InteractiveTextButton(onClick = onBack) { Text("‹ رجوع", fontWeight = FontWeight.Bold) }
+}
+
+@Composable
+private fun AcademicNoticeCard(text: String) {
+    Surface(
+        color = MaterialTheme.colorScheme.primaryContainer,
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        shape = MaterialTheme.shapes.medium,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Text(
+            text,
+            modifier = Modifier.padding(14.dp),
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.SemiBold
+        )
+    }
 }
 
 @Composable
@@ -1661,8 +1784,17 @@ private fun AcademicProgressRing(
     total: Int,
     modifier: Modifier = Modifier
 ) {
-    val progress = if (total > 0) passed.toFloat() / total.toFloat() else 0f
-    val percent = (progress * 100f).roundToInt()
+    val percentage = if (total > 0) passed.toDouble() * 100.0 / total.toDouble() else 0.0
+    PercentageRing(percentage = percentage, modifier = modifier)
+}
+
+@Composable
+private fun PercentageRing(
+    percentage: Double,
+    modifier: Modifier = Modifier
+) {
+    val progress = (percentage / 100.0).toFloat().coerceIn(0f, 1f)
+    val percent = percentage.coerceIn(0.0, 100.0).roundToInt()
     val trackColor = MaterialTheme.colorScheme.surfaceVariant
     val progressColor = MaterialTheme.colorScheme.primary
     Box(modifier = modifier.size(88.dp), contentAlignment = Alignment.Center) {
@@ -1680,7 +1812,7 @@ private fun AcademicProgressRing(
             drawArc(
                 color = progressColor,
                 startAngle = -90f,
-                sweepAngle = 360f * progress.coerceIn(0f, 1f),
+                sweepAngle = 360f * progress,
                 useCenter = false,
                 topLeft = Offset(stroke / 2, stroke / 2),
                 size = Size(size.width - stroke, size.height - stroke),

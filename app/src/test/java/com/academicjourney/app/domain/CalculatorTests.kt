@@ -51,6 +51,15 @@ class CalculatorTests {
     }
 
     @Test
+    fun subjectPercentageIsCalculatedIndependentlyForEachHighSchoolSubject() {
+        val entered = highSchool("الفيزياء", 400, true, 300)
+        val missing = entered.copy(subject = "الكيمياء", maxGrade = 200, grade = null)
+
+        assertEquals(75.0, HighSchoolCalculator.subjectPercentage(entered) ?: 0.0, 0.001)
+        assertNull(HighSchoolCalculator.subjectPercentage(missing))
+    }
+
+    @Test
     fun universityGradeRulesHandleWeightedAndPracticalTheoryPrograms() {
         val weighted = program(GradeCalculator.SVU_WEIGHTED, 20.0, 80.0, 50.0)
         val weightedResult = GradeCalculator.calculate(

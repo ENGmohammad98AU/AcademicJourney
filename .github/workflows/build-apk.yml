@@ -23,12 +23,12 @@ jobs:
         with:
           gradle-version: '8.11.1'
 
-      - name: Test, lint and build release APK
-        run: gradle testDebugUnitTest lintDebug assembleRelease --stacktrace
+      - name: Test, lint and build installable debug APK
+        run: gradle testDebugUnitTest lintDebug assembleDebug --stacktrace
 
-      - name: Upload unsigned release APK
+      - name: Upload installable debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: AcademicJourney-release-unsigned-apk
-          path: app/build/outputs/apk/release/app-release-unsigned.apk
+          name: AcademicJourney-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error

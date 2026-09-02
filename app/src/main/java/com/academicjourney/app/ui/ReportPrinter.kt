@@ -81,12 +81,14 @@ object ReportPrinter {
     ) {
         val summary = HighSchoolCalculator.calculate(grades)
         val rows = grades.sortedBy { it.displayOrder }.mapIndexed { index, item ->
+            val subjectPercentage = HighSchoolCalculator.subjectPercentage(item)
             """
             <tr>
               <td>${index + 1}</td>
               <td>${escape(item.subject)}</td>
               <td>${item.grade ?: "—"}</td>
               <td>${item.maxGrade}</td>
+              <td>${subjectPercentage?.let { "${formatGrade(it)}%" } ?: "—"}</td>
               <td>${if (item.includedInPercentage) "نعم" else "لا"}</td>
             </tr>
             """.trimIndent()
@@ -104,7 +106,7 @@ object ReportPrinter {
               <div><b>المواد غير المحتسبة:</b> ${escape(excluded)}</div>
             </div>
             <table>
-              <thead><tr><th>#</th><th>المادة</th><th>الدرجة</th><th>الدرجة العظمى</th><th>محتسبة بالنسبة</th></tr></thead>
+              <thead><tr><th>#</th><th>المادة</th><th>الدرجة</th><th>الدرجة العظمى</th><th>نسبة المادة</th><th>محتسبة بالنسبة العامة</th></tr></thead>
               <tbody>$rows</tbody>
             </table>
         """.trimIndent()

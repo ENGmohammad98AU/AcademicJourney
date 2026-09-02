@@ -159,7 +159,7 @@ fun GradeEntryCard(course: CourseEntity, program: ProgramEntity, onSave: (Course
             error?.let { Text(it, color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold) }
             if (saved) Text("تم حفظ الدرجة بنجاح.", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
 
-            Button(
+            InteractiveButton(
                 onClick = {
                     val firstValue = first.toDoubleOrNull()
                     val secondValue = second.toDoubleOrNull()
@@ -200,7 +200,7 @@ fun GradeEntryCard(course: CourseEntity, program: ProgramEntity, onSave: (Course
             ) { Text(if (hasExisting) "تحديث الدرجة" else "حفظ الدرجة", fontWeight = FontWeight.Bold) }
 
             if (hasExisting) {
-                OutlinedButton(
+                InteractiveOutlinedButton(
                     onClick = { showClearDialog = true },
                     modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                 ) { Text("مسح الدرجة المحفوظة") }
@@ -212,7 +212,7 @@ fun GradeEntryCard(course: CourseEntity, program: ProgramEntity, onSave: (Course
                     title = { Text("مسح الدرجة؟") },
                     text = { Text("سيتم حذف درجات هذه المادة وإعادتها إلى حالة غير مُقيّمة. لن تُحذف الملاحظات.") },
                     confirmButton = {
-                        TextButton(onClick = {
+                        InteractiveTextButton(onClick = {
                             onSave(
                                 course.copy(
                                     practicalGrade = null,
@@ -231,7 +231,7 @@ fun GradeEntryCard(course: CourseEntity, program: ProgramEntity, onSave: (Course
                             showClearDialog = false
                         }) { Text("مسح") }
                     },
-                    dismissButton = { TextButton(onClick = { showClearDialog = false }) { Text("إلغاء") } }
+                    dismissButton = { InteractiveTextButton(onClick = { showClearDialog = false }) { Text("إلغاء") } }
                 )
             }
         }

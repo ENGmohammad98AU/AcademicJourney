@@ -16,4 +16,10 @@ object HighSchoolCalculator {
         val percentage = if (maximum == 0) 0.0 else total.toDouble() * 100.0 / maximum.toDouble()
         return HighSchoolSummary(total, maximum, percentage)
     }
+
+    fun subjectPercentage(item: HighSchoolGradeEntity): Double? {
+        val grade = item.grade ?: return null
+        if (item.maxGrade <= 0) return null
+        return grade.coerceIn(0, item.maxGrade).toDouble() * 100.0 / item.maxGrade.toDouble()
+    }
 }
