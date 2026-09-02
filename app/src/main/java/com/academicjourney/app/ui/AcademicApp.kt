@@ -45,6 +45,7 @@ import com.academicjourney.app.data.HighSchoolSeedData
 import com.academicjourney.app.data.ProgramEntity
 import com.academicjourney.app.data.UniversityEntity
 import com.academicjourney.app.domain.GradeCalculator
+import com.academicjourney.app.domain.HighSchoolCalculator
 import java.util.Locale
 
 private sealed interface Screen {
@@ -383,9 +384,9 @@ private fun HighSchoolBranchScreen(
 ) {
     val isScientific = branch == HighSchoolSeedData.SCIENTIFIC_2016
     val branchTitle = if (isScientific) "الفرع العلمي 2016" else "الفرع الأدبي 2026"
-    val included = grades.filter { it.includedInPercentage }
-    val total = included.sumOf { it.grade ?: 0 }
-    val maximum = included.sumOf { it.maxGrade }
+    val summary = HighSchoolCalculator.calculate(grades)
+    val total = summary.totalGrade
+    val maximum = summary.maximumGrade
     val excludedNames = grades.filterNot { it.includedInPercentage }.joinToString(" و") { it.subject }
 
     Scaffold(
@@ -489,10 +490,7 @@ private fun SubjectGradeCard(
 }
 
 private fun highSchoolPercentage(grades: List<HighSchoolGradeEntity>): Double {
-    val included = grades.filter { it.includedInPercentage }
-    val maximum = included.sumOf { it.maxGrade }
-    if (maximum == 0) return 0.0
-    return included.sumOf { it.grade ?: 0 }.toDouble() * 100.0 / maximum.toDouble()
+    return HighSchoolCalculator.calculate(grades).percentage
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -787,8 +785,14 @@ private fun ProgramScreen(
     }
 
     Scaffold(topBar = { TopAppBar(title = { Text(program.name, fontWeight = FontWeight.Bold) }, navigationIcon = { BackButton(onBack) }) }) { padding ->
-        LazyColumn(Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 16.dp)) {
-            item {
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(2),
+            modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(vertical = 16.dp)
+        ) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
                 ElevatedCard(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
                         Text("الملخص الأكاديمي", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
@@ -812,28 +816,26 @@ private fun ProgramScreen(
                 }
             }
 
-            item {
+            item(span = { GridItemSpan(maxLineSpan) }) {
                 SectionHeader("السنوات الدراسية", "اختر السنة لعرض الفصل الأول والفصل الثاني")
             }
-            years.forEach { year ->
+            items(years, key = { it }) { year ->
                 val yearCourses = courses.filter { it.academicYear == year }
                 val yearGrades = yearCourses.mapNotNull { GradeCalculator.calculate(it, program).finalGrade }
                 val yearPassed = yearCourses.count { GradeCalculator.calculate(it, program).isPassed == true }
-                item {
-                    AcademicYearCard(
-                        year = year,
-                        courseCount = yearCourses.size,
-                        passedCount = yearPassed,
-                        average = yearGrades.takeIf { it.isNotEmpty() }?.average(),
-                        onClick = { onYear(year) }
-                    )
-                }
+                AcademicYearCard(
+                    year = year,
+                    courseCount = yearCourses.size,
+                    passedCount = yearPassed,
+                    average = yearGrades.takeIf { it.isNotEmpty() }?.average(),
+                    onClick = { onYear(year) }
+                )
             }
 
-            item {
+            item(span = { GridItemSpan(maxLineSpan) }) {
                 SectionHeader("المواد حسب الحالة", "اعرض المواد على مستوى البرنامج بالكامل دون الحاجة لفتح كل فصل")
             }
-            item {
+            item(span = { GridItemSpan(maxLineSpan) }) {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         FilterChip(selected = programFilter == CourseFilter.UNGRADED, onClick = { programFilter = CourseFilter.UNGRADED }, label = { Text("غير مُقيّمة") })
@@ -844,9 +846,13 @@ private fun ProgramScreen(
                 }
             }
             if (statusCourses.isEmpty()) {
-                item { EmptyState("لا توجد مواد ضمن الحالة المحددة.") }
+                item(span = { GridItemSpan(maxLineSpan) }) { EmptyState("لا توجد مواد ضمن الحالة المحددة.") }
             } else {
-                items(statusCourses, key = { "program-status-${it.id}" }) { c ->
+                items(
+                    items = statusCourses,
+                    key = { "program-status-${it.id}" },
+                    span = { GridItemSpan(maxLineSpan) }
+                ) { c ->
                     val result = GradeCalculator.calculate(c, program)
                     ElevatedCard(onClick = { onCourse(c.id) }, modifier = Modifier.fillMaxWidth()) {
                         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -877,7 +883,7 @@ private fun AcademicYearCard(
 ) {
     ElevatedCard(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
         Column {
-            Box(Modifier.fillMaxWidth().height(170.dp)) {
+            Box(Modifier.fillMaxWidth().height(150.dp)) {
                 Image(
                     painter = painterResource(yearImage(year)),
                     contentDescription = "${englishYear(year)} - السنة ${arabicOrdinal(year)}",
@@ -889,17 +895,21 @@ private fun AcademicYearCard(
                         Brush.verticalGradient(listOf(Color.Transparent, Color(0xDC172235)), startY = 35f)
                     )
                 )
-                Column(Modifier.align(Alignment.BottomStart).padding(16.dp)) {
-                    Text(englishYear(year), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black, color = Color.White)
-                    Text("السنة ${arabicOrdinal(year)}", style = MaterialTheme.typography.titleMedium, color = Color.White.copy(alpha = 0.9f))
+                Column(Modifier.align(Alignment.BottomStart).padding(12.dp)) {
+                    Text(englishYear(year), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black, color = Color.White)
+                    Text("السنة ${arabicOrdinal(year)}", style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.9f))
                 }
             }
-            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("$courseCount مقرر • $passedCount ناجح", style = MaterialTheme.typography.bodySmall, maxLines = 1)
                 Row(Modifier.fillMaxWidth()) {
-                    Text("$courseCount مقرر • $passedCount ناجح", modifier = Modifier.weight(1f))
-                    Text("المعدل: ${average?.let(::formatGrade) ?: "—"}", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Text("المعدل", modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelSmall)
+                    Text(average?.let(::formatGrade) ?: "—", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                 }
-                AcademicProgressBar(passed = passedCount, total = courseCount)
+                LinearProgressIndicator(
+                    progress = { if (courseCount == 0) 0f else (passedCount.toFloat() / courseCount).coerceIn(0f, 1f) },
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
         }
     }
@@ -927,12 +937,14 @@ private fun YearScreen(
             )
         }
     ) { padding ->
-        LazyColumn(
-            Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp),
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(2),
+            modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(vertical = 16.dp)
         ) {
-            item {
+            item(span = { GridItemSpan(maxLineSpan) }) {
                 ElevatedCard(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
                         Text(program.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -947,19 +959,15 @@ private fun YearScreen(
                     }
                 }
             }
-            item { SectionHeader("الفصول الدراسية", "اختر الفصل لعرض مقرراته ودرجاته") }
-            for (semester in 1..2) {
+            item(span = { GridItemSpan(maxLineSpan) }) { SectionHeader("الفصول الدراسية", "اختر الفصل لعرض مقرراته ودرجاته") }
+            items(listOf(1, 2), key = { it }) { semester ->
                 val semesterCourses = courses.filter { it.semester == semester }
-                if (semesterCourses.isNotEmpty()) {
-                    item {
-                        SemesterImageCard(
-                            program = program,
-                            semester = semester,
-                            courses = semesterCourses,
-                            onClick = { onSemester(semester) }
-                        )
-                    }
-                }
+                SemesterImageCard(
+                    program = program,
+                    semester = semester,
+                    courses = semesterCourses,
+                    onClick = { onSemester(semester) }
+                )
             }
         }
     }
@@ -977,7 +985,7 @@ private fun SemesterImageCard(
     val passed = courses.count { GradeCalculator.calculate(it, program).isPassed == true }
     ElevatedCard(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
         Column {
-            Box(Modifier.fillMaxWidth().height(170.dp)) {
+            Box(Modifier.fillMaxWidth().height(150.dp)) {
                 Image(
                     painter = painterResource(semesterImage(semester)),
                     contentDescription = englishSemester(semester),
@@ -989,15 +997,16 @@ private fun SemesterImageCard(
                         Brush.verticalGradient(listOf(Color.Transparent, Color(0xDF172235)), startY = 35f)
                     )
                 )
-                Column(Modifier.align(Alignment.BottomStart).padding(16.dp)) {
-                    Text(englishSemester(semester), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black, color = Color.White)
-                    Text("الفصل ${if (semester == 1) "الأول" else "الثاني"}", style = MaterialTheme.typography.titleMedium, color = Color.White.copy(alpha = 0.9f))
+                Column(Modifier.align(Alignment.BottomStart).padding(12.dp)) {
+                    Text(englishSemester(semester), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black, color = Color.White, maxLines = 1)
+                    Text("الفصل ${if (semester == 1) "الأول" else "الثاني"}", style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.9f))
                 }
             }
-            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("${courses.size} مقرر • $graded مُقيّم", style = MaterialTheme.typography.bodySmall, maxLines = 1)
                 Row(Modifier.fillMaxWidth()) {
-                    Text("${courses.size} مقرر • $graded مُقيّم • $passed ناجح", modifier = Modifier.weight(1f))
-                    Text(average?.let(::formatGrade) ?: "—", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Text("$passed ناجح", modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelSmall)
+                    Text(average?.let(::formatGrade) ?: "—", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                 }
                 LinearProgressIndicator(
                     progress = { if (courses.isEmpty()) 0f else passed.toFloat() / courses.size.toFloat() },
