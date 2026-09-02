@@ -5,6 +5,7 @@ on:
   push:
     branches: [ "main", "master" ]
 
+# Release build: AcademicJourney v0.7.0
 jobs:
   build:
     runs-on: ubuntu-latest
