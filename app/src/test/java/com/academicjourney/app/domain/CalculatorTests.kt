@@ -75,6 +75,32 @@ class CalculatorTests {
         assertFalse(failed.isPassed == true)
     }
 
+    @Test
+    fun andalusGradeAddsStudentWorkPracticalExamAndTheoryWithoutExceeding100() {
+        val andalus = program(
+            GradeCalculator.ANDALUS_SPLIT_PRACTICAL_THEORY,
+            assignment = 0.0,
+            exam = 0.0,
+            passing = 60.0
+        )
+        val passed = GradeCalculator.calculate(
+            course(studentWorkGrade = 20.0, practicalExamGrade = 20.0, theoryGrade = 30.0),
+            andalus
+        )
+        assertEquals(70.0, passed.finalGrade ?: 0.0, 0.001)
+        assertTrue(passed.isPassed == true)
+
+        val invalid = GradeCalculator.calculate(
+            course(studentWorkGrade = 40.0, practicalExamGrade = 30.0, theoryGrade = 31.0),
+            andalus
+        )
+        assertNull(invalid.finalGrade)
+        assertEquals(
+            "يجب أن يكون مجموع أعمال الطالب والامتحان العملي والنظري بين 0 و100.",
+            GradeCalculator.validateAndalus(40.0, 30.0, 31.0)
+        )
+    }
+
     private fun highSchool(name: String, maximum: Int, included: Boolean, grade: Int) =
         HighSchoolGradeEntity(
             branch = "test",
@@ -100,7 +126,9 @@ class CalculatorTests {
         practicalGrade: Double? = null,
         theoryGrade: Double? = null,
         assignmentGrade: Double? = null,
-        examGrade: Double? = null
+        examGrade: Double? = null,
+        studentWorkGrade: Double? = null,
+        practicalExamGrade: Double? = null
     ) = CourseEntity(
         id = 1,
         programId = 1,
@@ -110,6 +138,8 @@ class CalculatorTests {
         practicalGrade = practicalGrade,
         theoryGrade = theoryGrade,
         assignmentGrade = assignmentGrade,
-        examGrade = examGrade
+        examGrade = examGrade,
+        studentWorkGrade = studentWorkGrade,
+        practicalExamGrade = practicalExamGrade
     )
 }

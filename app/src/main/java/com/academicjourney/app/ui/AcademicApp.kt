@@ -440,6 +440,7 @@ private fun SubjectGradeCard(
     onSave: (HighSchoolGradeEntity) -> Unit
 ) {
     var value by remember(item.id, item.grade) { mutableStateOf(item.grade?.toString().orEmpty()) }
+    var inputError by remember(item.id) { mutableStateOf<String?>(null) }
     ElevatedCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -459,15 +460,18 @@ private fun SubjectGradeCard(
             OutlinedTextField(
                 value = value,
                 onValueChange = { input ->
+                    value = input
                     when {
                         input.isEmpty() -> {
-                            value = ""
+                            inputError = null
                             onSave(item.copy(grade = null))
                         }
-                        input.all { it.isDigit() } -> {
-                            val number = input.toIntOrNull()
-                            if (number != null && number in 0..item.maxGrade) {
-                                value = input
+                        else -> {
+                            val number = input.takeIf { text -> text.all { it.isDigit() } }?.toIntOrNull()
+                            if (number == null || number !in 0..item.maxGrade) {
+                                inputError = "يجب أن تكون الدرجة بين 0 و${item.maxGrade}."
+                            } else {
+                                inputError = null
                                 onSave(item.copy(grade = number))
                             }
                         }
@@ -477,10 +481,11 @@ private fun SubjectGradeCard(
                 label = { Text("الدرجة من ${item.maxGrade}") },
                 supportingText = {
                     Text(
-                        if (item.includedInPercentage) "تدخل هذه المادة في حساب النسبة."
+                        inputError ?: if (item.includedInPercentage) "تدخل هذه المادة في حساب النسبة."
                         else "تُحفظ الدرجة للمراجعة ولا تدخل في حساب النسبة."
                     )
                 },
+                isError = inputError != null,
                 suffix = { Text("/ ${item.maxGrade}") },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next)
@@ -806,9 +811,13 @@ private fun ProgramScreen(
                         HorizontalDivider()
                         Text("حد النجاح: ${program.passingGrade.toInt()}/100", fontWeight = FontWeight.SemiBold)
                         Text(
-                            if (program.gradingScheme == GradeCalculator.SVU_WEIGHTED)
-                                "طريقة الحساب: ${program.assignmentWeight.toInt()}% وظيفة + ${program.examWeight.toInt()}% امتحان."
-                            else "طريقة الحساب: العملي + النظري، والمجموع النهائي لا يتجاوز 100.",
+                            when (program.gradingScheme) {
+                                GradeCalculator.SVU_WEIGHTED ->
+                                    "طريقة الحساب: ${program.assignmentWeight.toInt()}% وظيفة + ${program.examWeight.toInt()}% امتحان."
+                                GradeCalculator.ANDALUS_SPLIT_PRACTICAL_THEORY ->
+                                    "طريقة الحساب: أعمال الطالب + الامتحان العملي + النظري، والمجموع النهائي بين 0 و100."
+                                else -> "طريقة الحساب: العملي + النظري، والمجموع النهائي بين 0 و100."
+                            },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
