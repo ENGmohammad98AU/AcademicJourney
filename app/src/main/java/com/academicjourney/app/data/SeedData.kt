@@ -304,7 +304,7 @@ dao.insertCourse(CourseEntity(programId=p7,name="النمذجة والمحاكا
 dao.insertCourse(CourseEntity(programId=p7,name="مشروع تطبيقي",code="",language="",academicYear=4,semester=2))
 dao.insertCourse(CourseEntity(programId=p7,name="الحواسب في الطب (1)",code="",language="",academicYear=4,semester=2))
 dao.insertCourse(CourseEntity(programId=p7,name="الأطراف والأعضاء الاصطناعية وأجهزة التأهيل",code="",language="",academicYear=4,semester=2))
-dao.insertCourse(CourseEntity(programId=p7,name="اللغة الانكليزية التكميلية (2)",code="",language="",academicYear=4,semester=2))
+dao.insertCourse(CourseEntity(programId=p7,name="اللغة الانكليزية التكميلية (1)",code="",language="",academicYear=4,semester=2))
 dao.insertCourse(CourseEntity(programId=p7,name="التحكم الطبي الحيوي (1)",code="",language="",academicYear=5,semester=1))
 dao.insertCourse(CourseEntity(programId=p7,name="معالجة الصور الطبية",code="",language="",academicYear=5,semester=1))
 dao.insertCourse(CourseEntity(programId=p7,name="مشروع التخرج (1)",code="",language="",academicYear=5,semester=1))

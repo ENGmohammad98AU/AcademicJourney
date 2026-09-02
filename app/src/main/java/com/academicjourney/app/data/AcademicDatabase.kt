@@ -14,7 +14,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         CourseEntity::class,
         HighSchoolGradeEntity::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 abstract class AcademicDatabase : RoomDatabase() {
@@ -91,13 +91,52 @@ abstract class AcademicDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Keep repeated courses as entered, but make the complementary-English
+                // number consistent with its academic year for Al-Andalus University.
+                db.execSQL(
+                    """
+                    UPDATE `CourseEntity`
+                    SET `name` = 'اللغة الانكليزية التكميلية (1)'
+                    WHERE `academicYear` = 4
+                      AND `name` IN (
+                          'اللغة الانكليزية التكميلية (1)',
+                          'اللغة الانكليزية التكميلية (2)'
+                      )
+                      AND `programId` IN (
+                          SELECT p.`id` FROM `ProgramEntity` p
+                          INNER JOIN `UniversityEntity` u ON u.`id` = p.`universityId`
+                          WHERE u.`name` LIKE '%الأندلس%'
+                      )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    UPDATE `CourseEntity`
+                    SET `name` = 'اللغة الانكليزية التكميلية (2)'
+                    WHERE `academicYear` = 5
+                      AND `name` IN (
+                          'اللغة الانكليزية التكميلية (1)',
+                          'اللغة الانكليزية التكميلية (2)'
+                      )
+                      AND `programId` IN (
+                          SELECT p.`id` FROM `ProgramEntity` p
+                          INNER JOIN `UniversityEntity` u ON u.`id` = p.`universityId`
+                          WHERE u.`name` LIKE '%الأندلس%'
+                      )
+                    """.trimIndent()
+                )
+            }
+        }
+
         fun get(context: Context): AcademicDatabase = INSTANCE ?: synchronized(this) {
             INSTANCE ?: Room.databaseBuilder(
                 context.applicationContext,
                 AcademicDatabase::class.java,
                 "academic_journey.db"
             )
-                .addMigrations(MIGRATION_2_3, MIGRATION_3_4)
+                .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                 .build()
                 .also { INSTANCE = it }
         }

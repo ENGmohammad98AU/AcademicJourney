@@ -1,6 +1,12 @@
 package com.academicjourney.app.ui
 
+import android.net.Uri
+import android.widget.VideoView
 import kotlin.math.roundToInt
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.Brush
@@ -25,10 +31,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -38,6 +47,8 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
+import com.academicjourney.app.BuildConfig
 import com.academicjourney.app.R
 import com.academicjourney.app.data.CourseEntity
 import com.academicjourney.app.data.HighSchoolGradeEntity
@@ -46,6 +57,7 @@ import com.academicjourney.app.data.ProgramEntity
 import com.academicjourney.app.data.UniversityEntity
 import com.academicjourney.app.domain.GradeCalculator
 import com.academicjourney.app.domain.HighSchoolCalculator
+import kotlinx.coroutines.delay
 import java.util.Locale
 
 private sealed interface Screen {
@@ -68,6 +80,7 @@ fun AcademicApp(vm: AcademicViewModel) {
     val courses by vm.courses.collectAsState()
     val highSchoolGrades by vm.highSchoolGrades.collectAsState()
     var screen by remember { mutableStateOf<Screen>(Screen.Home) }
+    var showIntro by rememberSaveable { mutableStateOf(true) }
 
     LaunchedEffect(Unit) { vm.ensureSeeded() }
 
@@ -91,7 +104,9 @@ fun AcademicApp(vm: AcademicViewModel) {
 
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
         AcademicJourneyTheme {
-            when (val s = screen) {
+            if (showIntro) {
+                IntroVideoScreen(onFinished = { showIntro = false })
+            } else when (val s = screen) {
                 Screen.Home -> HomeScreen(
                     onUniversities = { screen = Screen.Universities },
                     onHighSchool = { screen = Screen.HighSchool },
@@ -121,8 +136,10 @@ fun AcademicApp(vm: AcademicViewModel) {
                     universities = universities,
                     programs = programs,
                     courses = courses,
+                    highSchoolGrades = highSchoolGrades,
                     onHome = { screen = Screen.Home },
-                    onProgram = { screen = Screen.Program(it) }
+                    onProgram = { screen = Screen.Program(it) },
+                    onHighSchool = { screen = Screen.HighSchool }
                 )
                 is Screen.University -> UniversityScreen(
                     university = universities.firstOrNull { it.id == s.id },
@@ -133,6 +150,9 @@ fun AcademicApp(vm: AcademicViewModel) {
                 )
                 is Screen.Program -> ProgramScreen(
                     program = programs.firstOrNull { it.id == s.id },
+                    universityName = programs.firstOrNull { it.id == s.id }?.let { selectedProgram ->
+                        universities.firstOrNull { it.id == selectedProgram.universityId }?.name
+                    }.orEmpty(),
                     courses = courses.filter { it.programId == s.id },
                     onBack = {
                         val p = programs.firstOrNull { it.id == s.id }
@@ -162,6 +182,9 @@ fun AcademicApp(vm: AcademicViewModel) {
                     CourseScreen(
                         course = course,
                         program = program,
+                        universityName = program?.let { selectedProgram ->
+                            universities.firstOrNull { it.id == selectedProgram.universityId }?.name
+                        },
                         onBack = {
                             if (course != null) screen = Screen.Semester(course.programId, course.academicYear, course.semester)
                             else screen = Screen.Home
@@ -175,21 +198,113 @@ fun AcademicApp(vm: AcademicViewModel) {
 }
 
 @Composable
-private fun RootNavigationBar(homeSelected: Boolean, onHome: () -> Unit, onStatistics: () -> Unit) {
-    NavigationBar {
-        NavigationBarItem(
-            selected = homeSelected,
-            onClick = onHome,
-            icon = { Text("⌂", style = MaterialTheme.typography.titleLarge) },
-            label = { Text("الرئيسية") }
+private fun IntroVideoScreen(onFinished: () -> Unit) {
+    val context = LocalContext.current
+    var finished by remember { mutableStateOf(false) }
+    val finishOnce: () -> Unit = {
+        if (!finished) {
+            finished = true
+            onFinished()
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        delay(7_000)
+        finishOnce()
+    }
+
+    Box(Modifier.fillMaxSize().background(Color(0xFF101B2B))) {
+        AndroidView(
+            factory = { viewContext ->
+                VideoView(viewContext).apply {
+                    setVideoURI(Uri.parse("android.resource://${context.packageName}/${R.raw.app_intro}"))
+                    setOnPreparedListener { player ->
+                        player.isLooping = false
+                        start()
+                    }
+                    setOnCompletionListener { finishOnce() }
+                    setOnErrorListener { _, _, _ ->
+                        finishOnce()
+                        true
+                    }
+                }
+            },
+            modifier = Modifier.fillMaxSize()
         )
-        NavigationBarItem(
-            selected = !homeSelected,
-            onClick = onStatistics,
-            icon = { Text("▥", style = MaterialTheme.typography.titleLarge) },
-            label = { Text("الإحصائيات") }
+        Box(
+            Modifier.fillMaxSize().background(
+                Brush.verticalGradient(
+                    colors = listOf(Color.Transparent, Color.Transparent, Color(0xD8101B2B)),
+                    startY = 180f
+                )
+            )
+        )
+        TextButton(
+            onClick = finishOnce,
+            modifier = Modifier.align(Alignment.TopStart).padding(16.dp)
+        ) {
+            Text("تخطي", color = Color.White, fontWeight = FontWeight.Bold)
+        }
+        Column(
+            modifier = Modifier.align(Alignment.BottomCenter).padding(horizontal = 24.dp, vertical = 36.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(7.dp)
+        ) {
+            Text("مسيرتي الأكاديمية", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Black, color = Color.White)
+            Text("جامعاتك ودرجاتك وتقدمك في مكان واحد", style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.9f))
+            Text("الإصدار ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.75f))
+        }
+    }
+}
+
+@Composable
+private fun RootNavigationBar(homeSelected: Boolean, onHome: () -> Unit, onStatistics: () -> Unit) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        NavigationBar {
+            NavigationBarItem(
+                selected = homeSelected,
+                onClick = onHome,
+                icon = { Text("⌂", style = MaterialTheme.typography.titleLarge) },
+                label = { Text("الرئيسية") }
+            )
+            NavigationBarItem(
+                selected = !homeSelected,
+                onClick = onStatistics,
+                icon = { Text("▥", style = MaterialTheme.typography.titleLarge) },
+                label = { Text("الإحصائيات") }
+            )
+        }
+        Text(
+            "الإصدار ${BuildConfig.VERSION_NAME}",
+            modifier = Modifier.padding(bottom = 5.dp),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
+}
+
+@Composable
+private fun InteractiveElevatedCard(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.965f else 1f,
+        animationSpec = spring(dampingRatio = 0.72f, stiffness = 520f),
+        label = "cardPressScale"
+    )
+    ElevatedCard(
+        onClick = onClick,
+        modifier = modifier.graphicsLayer {
+            scaleX = scale
+            scaleY = scale
+        },
+        interactionSource = interactionSource,
+        content = content
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -249,7 +364,7 @@ private fun PortalCard(
     @DrawableRes image: Int,
     onClick: () -> Unit
 ) {
-    ElevatedCard(onClick = onClick, modifier = Modifier.fillMaxWidth().height(242.dp)) {
+    InteractiveElevatedCard(onClick = onClick, modifier = Modifier.fillMaxWidth().height(242.dp)) {
         Box(Modifier.fillMaxSize()) {
             Image(
                 painter = painterResource(image),
@@ -344,7 +459,7 @@ private fun HighSchoolBranchCard(
     percentage: Double,
     onClick: () -> Unit
 ) {
-    ElevatedCard(onClick = onClick, modifier = Modifier.fillMaxWidth().height(242.dp)) {
+    InteractiveElevatedCard(onClick = onClick, modifier = Modifier.fillMaxWidth().height(242.dp)) {
         Column {
             Box(Modifier.fillMaxWidth().weight(1f)) {
                 Image(
@@ -382,6 +497,7 @@ private fun HighSchoolBranchScreen(
     onBack: () -> Unit,
     onSave: (HighSchoolGradeEntity) -> Unit
 ) {
+    val context = LocalContext.current
     val isScientific = branch == HighSchoolSeedData.SCIENTIFIC_2016
     val branchTitle = if (isScientific) "الفرع العلمي 2016" else "الفرع الأدبي 2026"
     val summary = HighSchoolCalculator.calculate(grades)
@@ -420,6 +536,12 @@ private fun HighSchoolBranchScreen(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                        Button(
+                            onClick = { ReportPrinter.printHighSchoolReport(context, branchTitle, grades) },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("طباعة أو حفظ تقرير PDF", fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
             }
@@ -572,7 +694,7 @@ private fun SummaryCard(label: String, value: String, modifier: Modifier = Modif
 
 @Composable
 private fun UniversityCard(university: UniversityEntity, programCount: Int, courseCount: Int, gradedCount: Int, passedCount: Int, onClick: () -> Unit) {
-    ElevatedCard(onClick = onClick, modifier = Modifier.fillMaxWidth().heightIn(min = 232.dp)) {
+    InteractiveElevatedCard(onClick = onClick, modifier = Modifier.fillMaxWidth().heightIn(min = 232.dp)) {
         Column(
             Modifier.fillMaxSize().padding(14.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -620,6 +742,29 @@ private fun programImage(name: String): Int = when {
     "الدولية والدبلوماسية" in name -> R.drawable.program_diplomacy
     "الهندسة الطبية" in name -> R.drawable.program_biomedical
     else -> R.drawable.program_mba
+}
+
+@DrawableRes
+private fun courseImage(course: CourseEntity, program: ProgramEntity): Int {
+    val name = course.name
+    return when {
+        listOf("إعلام", "صحافة", "اتصال", "إذاعة", "تلفزيون", "سينما", "تحرير").any { it in name } ->
+            R.drawable.program_media
+        listOf("حاسوب", "حواسب", "برمج", "خوارزم", "شبكات", "ويب", "معلومات", "ذكاء صنعي").any { it in name } ->
+            R.drawable.program_cs
+        listOf("طب", "طبية", "حيوي", "تشريح", "فيزيولوج", "أجهزة", "شعاع", "إشارة").any { it in name } ->
+            R.drawable.program_biomedical
+        listOf("دبلوماس", "سياس", "قانون", "علاقات دولية", "بروتوكول").any { it in name } ->
+            R.drawable.program_diplomacy
+        listOf("تاريخ", "آثار", "حضارة").any { it in name } ->
+            R.drawable.program_history
+        listOf("موارد بشرية", "سلوك تنظيمي", "قيادة").any { it in name } ->
+            R.drawable.program_hr
+        listOf("إدارة", "محاسب", "اقتصاد", "تسويق", "مالية", "أعمال").any { it in name } ->
+            R.drawable.program_mba
+        program.gradingScheme == GradeCalculator.SVU_WEIGHTED -> programImage(program.name)
+        else -> R.drawable.course_study
+    }
 }
 
 @DrawableRes
@@ -717,7 +862,7 @@ private fun ProgramImageCard(
     onClick: () -> Unit
 ) {
     val progress = if (courseCount == 0) 0f else passedCount.toFloat() / courseCount.toFloat()
-    ElevatedCard(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
+    InteractiveElevatedCard(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
         Column {
             Box(Modifier.fillMaxWidth().height(154.dp)) {
                 Image(
@@ -767,12 +912,14 @@ private fun ProgramImageCard(
 @Composable
 private fun ProgramScreen(
     program: ProgramEntity?,
+    universityName: String,
     courses: List<CourseEntity>,
     onBack: () -> Unit,
     onYear: (Int) -> Unit,
     onCourse: (Long) -> Unit
 ) {
     if (program == null) return
+    val context = LocalContext.current
     val years = courses.map { it.academicYear }.distinct().sorted()
     val allGrades = courses.mapNotNull { GradeCalculator.calculate(it, program).finalGrade }
     val passed = courses.count { GradeCalculator.calculate(it, program).isPassed == true }
@@ -821,6 +968,19 @@ private fun ProgramScreen(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                        Button(
+                            onClick = {
+                                ReportPrinter.printProgramReport(
+                                    context = context,
+                                    universityName = universityName,
+                                    program = program,
+                                    courses = courses
+                                )
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("طباعة أو حفظ تقرير PDF", fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
             }
@@ -863,11 +1023,16 @@ private fun ProgramScreen(
                     span = { GridItemSpan(maxLineSpan) }
                 ) { c ->
                     val result = GradeCalculator.calculate(c, program)
-                    ElevatedCard(onClick = { onCourse(c.id) }, modifier = Modifier.fillMaxWidth()) {
+                    InteractiveElevatedCard(onClick = { onCourse(c.id) }, modifier = Modifier.fillMaxWidth()) {
                         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                                 Text(c.name, fontWeight = FontWeight.Bold)
-                                Text("السنة ${arabicOrdinal(c.academicYear)} • الفصل ${if (c.semester == 1) "الأول" else "الثاني"}${if (c.code.isNotBlank()) " • ${c.code}" else ""}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(
+                                    "السنة ${arabicOrdinal(c.academicYear)} • الفصل ${if (c.semester == 1) "الأول" else "الثاني"}" +
+                                        if (c.code.isNotBlank()) " • ${courseIdentifierLabel(program)}: ${c.code}" else "",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
                             Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 GradeStatus(result.isPassed)
@@ -890,7 +1055,7 @@ private fun AcademicYearCard(
     average: Double?,
     onClick: () -> Unit
 ) {
-    ElevatedCard(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
+    InteractiveElevatedCard(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
         Column {
             Box(Modifier.fillMaxWidth().height(150.dp)) {
                 Image(
@@ -992,7 +1157,7 @@ private fun SemesterImageCard(
     val average = GradeCalculator.semesterAverage(courses, program)
     val graded = courses.count { GradeCalculator.calculate(it, program).finalGrade != null }
     val passed = courses.count { GradeCalculator.calculate(it, program).isPassed == true }
-    ElevatedCard(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
+    InteractiveElevatedCard(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
         Column {
             Box(Modifier.fillMaxWidth().height(150.dp)) {
                 Image(
@@ -1051,8 +1216,14 @@ private fun SemesterScreen(program: ProgramEntity?, year: Int, semester: Int, co
     }
 
     Scaffold(topBar = { TopAppBar(title = { Text("السنة ${arabicOrdinal(year)} • الفصل ${if (semester == 1) "الأول" else "الثاني"}", fontWeight = FontWeight.Bold) }, navigationIcon = { BackButton(onBack) }) }) { padding ->
-        LazyColumn(Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(vertical = 16.dp)) {
-            item {
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(2),
+            modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            contentPadding = PaddingValues(vertical = 16.dp)
+        ) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
                 ElevatedCard(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -1067,16 +1238,32 @@ private fun SemesterScreen(program: ProgramEntity?, year: Int, semester: Int, co
                     }
                 }
             }
-            item {
+            if (program.gradingScheme == GradeCalculator.SVU_WEIGHTED) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        shape = MaterialTheme.shapes.medium,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            "تنويه: الأحرف والرموز الإنجليزية الظاهرة تحت اسم المادة هي رمز المقرر.",
+                            modifier = Modifier.padding(14.dp),
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+            }
+            item(span = { GridItemSpan(maxLineSpan) }) {
                 OutlinedTextField(
                     value = search,
                     onValueChange = { search = it },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("البحث باسم المادة أو الرمز") },
+                    label = { Text("البحث باسم المادة أو رمز/رقم المقرر") },
                     singleLine = true
                 )
             }
-            item {
+            item(span = { GridItemSpan(maxLineSpan) }) {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         FilterChip(selected = filter == CourseFilter.ALL, onClick = { filter = CourseFilter.ALL }, label = { Text("الكل") })
@@ -1086,22 +1273,52 @@ private fun SemesterScreen(program: ProgramEntity?, year: Int, semester: Int, co
                     FilterChip(selected = filter == CourseFilter.UNGRADED, onClick = { filter = CourseFilter.UNGRADED }, label = { Text("غير مُقيّم") })
                 }
             }
-            if (visibleCourses.isEmpty()) item { EmptyState("لا توجد مواد مطابقة للبحث أو الفلتر الحالي.") }
+            if (visibleCourses.isEmpty()) {
+                item(span = { GridItemSpan(maxLineSpan) }) { EmptyState("لا توجد مواد مطابقة للبحث أو الفلتر الحالي.") }
+            }
             items(visibleCourses, key = { it.id }) { c ->
                 val result = GradeCalculator.calculate(c, program)
-                ElevatedCard(onClick = { onCourse(c.id) }, modifier = Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
-                            Column(Modifier.weight(1f)) {
-                                Text(c.name, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
-                                if (c.code.isNotBlank()) Text(c.code, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                InteractiveElevatedCard(onClick = { onCourse(c.id) }, modifier = Modifier.fillMaxWidth().heightIn(min = 264.dp)) {
+                    Column {
+                        Box(Modifier.fillMaxWidth().height(116.dp)) {
+                            Image(
+                                painter = painterResource(courseImage(c, program)),
+                                contentDescription = "صورة مقرر ${c.name}",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                            Box(
+                                Modifier.fillMaxSize().background(
+                                    Brush.verticalGradient(listOf(Color.Transparent, Color(0xC9172235)), startY = 35f)
+                                )
+                            )
+                            Box(Modifier.align(Alignment.TopEnd).padding(7.dp)) {
+                                GradeStatus(result.isPassed)
                             }
-                            GradeStatus(result.isPassed)
                         }
-                        HorizontalDivider()
-                        Row(Modifier.fillMaxWidth()) {
-                            Text("الدرجة", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-                            Text(result.finalGrade?.let { "${formatGrade(it)}/100" } ?: "لم تُدخل بعد", fontWeight = FontWeight.SemiBold)
+                        Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(
+                                c.name,
+                                fontWeight = FontWeight.Bold,
+                                style = MaterialTheme.typography.titleSmall,
+                                maxLines = 3,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            if (c.code.isNotBlank()) {
+                                Text(
+                                    "${courseIdentifierLabel(program)}: ${c.code}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            HorizontalDivider()
+                            Text(
+                                result.finalGrade?.let { "الدرجة: ${formatGrade(it)}/100" } ?: "لم تُدخل الدرجة بعد",
+                                fontWeight = FontWeight.SemiBold,
+                                style = MaterialTheme.typography.labelMedium
+                            )
                         }
                     }
                 }
@@ -1112,11 +1329,20 @@ private fun SemesterScreen(program: ProgramEntity?, year: Int, semester: Int, co
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun CourseScreen(course: CourseEntity?, program: ProgramEntity?, onBack: () -> Unit, onSave: (CourseEntity) -> Unit) {
+private fun CourseScreen(
+    course: CourseEntity?,
+    program: ProgramEntity?,
+    universityName: String?,
+    onBack: () -> Unit,
+    onSave: (CourseEntity) -> Unit
+) {
     if (course == null || program == null) return
     val result = GradeCalculator.calculate(course, program)
+    val isDamascus = universityName?.contains("دمشق") == true
     var notes by remember(course.id, course.notes) { mutableStateOf(course.notes) }
     var noteSaved by remember(course.id, course.notes) { mutableStateOf(false) }
+    var courseNumber by remember(course.id, course.code) { mutableStateOf(course.code) }
+    var courseNumberSaved by remember(course.id) { mutableStateOf(false) }
 
     Scaffold(topBar = { TopAppBar(title = { Text("تفاصيل المادة", fontWeight = FontWeight.Bold) }, navigationIcon = { BackButton(onBack) }) }) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 16.dp)) {
@@ -1124,7 +1350,7 @@ private fun CourseScreen(course: CourseEntity?, program: ProgramEntity?, onBack:
                 ElevatedCard(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                         Text(course.name, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                        if (course.code.isNotBlank()) Text("رمز المقرر: ${course.code}")
+                        if (course.code.isNotBlank()) Text("${courseIdentifierLabel(program)}: ${course.code}")
                         if (course.language.isNotBlank()) Text("اللغة: ${course.language}")
                         Text("السنة ${arabicOrdinal(course.academicYear)} • الفصل ${if (course.semester == 1) "الأول" else "الثاني"}")
                         HorizontalDivider()
@@ -1136,6 +1362,37 @@ private fun CourseScreen(course: CourseEntity?, program: ProgramEntity?, onBack:
                             GradeStatus(result.isPassed)
                         }
                         Text("حد النجاح: ${program.passingGrade.toInt()}/100", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+            if (isDamascus) {
+                item {
+                    ElevatedCard(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Text("رقم المقرر", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                            Text(
+                                "يمكنك إضافة رقم مقرر جامعة دمشق أو تعديله، وسيظهر تحت اسم المادة وفي نتائج البحث.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            OutlinedTextField(
+                                value = courseNumber,
+                                onValueChange = { courseNumber = it; courseNumberSaved = false },
+                                modifier = Modifier.fillMaxWidth(),
+                                label = { Text("رقم المقرر") },
+                                singleLine = true
+                            )
+                            Button(
+                                onClick = {
+                                    onSave(course.copy(code = courseNumber.trim()))
+                                    courseNumberSaved = true
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) { Text("حفظ رقم المقرر") }
+                            if (courseNumberSaved) {
+                                Text("تم حفظ رقم المقرر.", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
                     }
                 }
             }
@@ -1168,23 +1425,33 @@ private fun StatisticsScreen(
     universities: List<UniversityEntity>,
     programs: List<ProgramEntity>,
     courses: List<CourseEntity>,
+    highSchoolGrades: List<HighSchoolGradeEntity>,
     onHome: () -> Unit,
-    onProgram: (Long) -> Unit
+    onProgram: (Long) -> Unit,
+    onHighSchool: () -> Unit
 ) {
     val totalGraded = courses.count { c -> programs.firstOrNull { it.id == c.programId }?.let { GradeCalculator.calculate(c, it).finalGrade != null } == true }
     val totalPassed = courses.count { c -> programs.firstOrNull { it.id == c.programId }?.let { GradeCalculator.calculate(c, it).isPassed == true } == true }
     val totalFailed = courses.count { c -> programs.firstOrNull { it.id == c.programId }?.let { GradeCalculator.calculate(c, it).isPassed == false } == true }
+    val scientificGrades = highSchoolGrades.filter { it.branch == HighSchoolSeedData.SCIENTIFIC_2016 }
+    val literaryGrades = highSchoolGrades.filter { it.branch == HighSchoolSeedData.LITERARY_2026 }
 
     Scaffold(
         topBar = { CenterAlignedTopAppBar(title = { Text("الإحصائيات", fontWeight = FontWeight.Bold) }) },
         bottomBar = { RootNavigationBar(false, onHome = onHome, onStatistics = {}) }
     ) { padding ->
-        LazyColumn(Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 16.dp)) {
-            item {
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(2),
+            modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(vertical = 16.dp)
+        ) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
                 ElevatedCard(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text("الملخص العام", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                        Text("${universities.size} جامعات • ${programs.size} برامج • ${courses.size} مقرر")
+                        Text("${universities.size} جامعات • ${programs.size} برامج • ${courses.size} مقرر • الثانوية العامة")
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             MetricBox("مُقيّمة", totalGraded.toString(), Modifier.weight(1f))
                             MetricBox("ناجحة", totalPassed.toString(), Modifier.weight(1f))
@@ -1201,24 +1468,128 @@ private fun StatisticsScreen(
                     }
                 }
             }
-            item { SectionHeader("حسب البرنامج", "اضغط على أي برنامج للانتقال إلى تفاصيله") }
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                SectionHeader("بطاقات الإحصائيات", "البرامج والشهادة الثانوية ضمن شبكة مصوّرة من عمودين")
+            }
+            item {
+                HighSchoolStatisticsCard(
+                    scientificPercentage = highSchoolPercentage(scientificGrades),
+                    literaryPercentage = highSchoolPercentage(literaryGrades),
+                    enteredGrades = highSchoolGrades.count { it.grade != null },
+                    totalSubjects = highSchoolGrades.size,
+                    onClick = onHighSchool
+                )
+            }
             items(programs, key = { it.id }) { p ->
                 val pc = courses.filter { it.programId == p.id }
                 val grades = pc.mapNotNull { GradeCalculator.calculate(it, p).finalGrade }
                 val passed = pc.count { GradeCalculator.calculate(it, p).isPassed == true }
                 val failed = pc.count { GradeCalculator.calculate(it, p).isPassed == false }
-                val progress = if (pc.isEmpty()) 0f else passed.toFloat() / pc.size.toFloat()
-                ElevatedCard(onClick = { onProgram(p.id) }, modifier = Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                        Text(p.name, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
-                        Row(Modifier.fillMaxWidth()) {
-                            Text("${pc.size} مقرر • ${grades.size} مُقيّم", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-                            Text(grades.takeIf { it.isNotEmpty() }?.average()?.let { "${formatGrade(it)}%" } ?: "—", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                        }
-                        AcademicProgressBar(passed = passed, total = pc.size)
-                        Text("$passed ناجح • $failed راسب • ${pc.size - passed - failed} غير مُقيّم • ${pc.size - passed} متبقي للإنجاز", style = MaterialTheme.typography.labelSmall)
-                    }
+                StatisticsProgramCard(
+                    program = p,
+                    courseCount = pc.size,
+                    gradedCount = grades.size,
+                    passedCount = passed,
+                    failedCount = failed,
+                    average = grades.takeIf { it.isNotEmpty() }?.average(),
+                    onClick = { onProgram(p.id) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun StatisticsProgramCard(
+    program: ProgramEntity,
+    courseCount: Int,
+    gradedCount: Int,
+    passedCount: Int,
+    failedCount: Int,
+    average: Double?,
+    onClick: () -> Unit
+) {
+    val progress = if (courseCount == 0) 0f else passedCount.toFloat() / courseCount.toFloat()
+    InteractiveElevatedCard(onClick = onClick, modifier = Modifier.fillMaxWidth().heightIn(min = 260.dp)) {
+        Column {
+            Box(Modifier.fillMaxWidth().height(140.dp)) {
+                Image(
+                    painter = painterResource(programImage(program.name)),
+                    contentDescription = "إحصائيات ${program.name}",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+                Box(
+                    Modifier.fillMaxSize().background(
+                        Brush.verticalGradient(listOf(Color.Transparent, Color(0xEB172235)), startY = 45f)
+                    )
+                )
+                Text(
+                    program.name,
+                    modifier = Modifier.align(Alignment.BottomStart).padding(11.dp),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Black,
+                    color = Color.White,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("$gradedCount/$courseCount مُقيّم", modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelSmall)
+                    Text(
+                        average?.let { "${formatGrade(it)}%" } ?: "—",
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                        style = MaterialTheme.typography.labelMedium
+                    )
                 }
+                LinearProgressIndicator(progress = { progress.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
+                Text(
+                    "$passedCount ناجح • $failedCount راسب • ${courseCount - passedCount - failedCount} غير مُقيّم",
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 2
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun HighSchoolStatisticsCard(
+    scientificPercentage: Double,
+    literaryPercentage: Double,
+    enteredGrades: Int,
+    totalSubjects: Int,
+    onClick: () -> Unit
+) {
+    InteractiveElevatedCard(onClick = onClick, modifier = Modifier.fillMaxWidth().heightIn(min = 260.dp)) {
+        Column {
+            Box(Modifier.fillMaxWidth().height(140.dp)) {
+                Image(
+                    painter = painterResource(R.drawable.home_high_school),
+                    contentDescription = "إحصائيات الشهادة الثانوية",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+                Box(
+                    Modifier.fillMaxSize().background(
+                        Brush.verticalGradient(listOf(Color.Transparent, Color(0xEB172235)), startY = 45f)
+                    )
+                )
+                Text(
+                    "الشهادة الثانوية",
+                    modifier = Modifier.align(Alignment.BottomStart).padding(11.dp),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Black,
+                    color = Color.White
+                )
+            }
+            Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("$enteredGrades/$totalSubjects درجة مدخلة", style = MaterialTheme.typography.labelSmall)
+                Text("العلمي 2016: ${formatGrade(scientificPercentage)}%", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                Text("الأدبي 2026: ${formatGrade(literaryPercentage)}%", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                Text("اضغط لعرض تفاصيل الفرعين", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
             }
         }
     }
@@ -1251,12 +1622,23 @@ private fun MetricBox(label: String, value: String, modifier: Modifier = Modifie
 private fun GradeStatus(status: Boolean?) {
     val text = when (status) { true -> "ناجح"; false -> "راسب"; null -> "غير مُقيّم" }
     val container = when (status) {
-        true -> MaterialTheme.colorScheme.primaryContainer
-        false -> MaterialTheme.colorScheme.errorContainer
+        true -> Color(0xFFDDF7E6)
+        false -> Color(0xFFFFE3E1)
         null -> MaterialTheme.colorScheme.surfaceVariant
     }
+    val content = when (status) {
+        true -> Color(0xFF146C38)
+        false -> Color(0xFFB3261E)
+        null -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
     Surface(color = container, shape = RoundedCornerShape(50)) {
-        Text(text, modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+        Text(
+            text,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Bold,
+            color = content
+        )
     }
 }
 
@@ -1268,6 +1650,8 @@ private fun EmptyState(message: String) {
 }
 
 private fun formatGrade(value: Double): String = String.format(Locale.US, "%.2f", value)
+private fun courseIdentifierLabel(program: ProgramEntity): String =
+    if (program.gradingScheme == GradeCalculator.SVU_WEIGHTED) "رمز المقرر" else "رقم المقرر"
 private fun arabicOrdinal(year: Int): String = when (year) { 1 -> "الأولى"; 2 -> "الثانية"; 3 -> "الثالثة"; 4 -> "الرابعة"; 5 -> "الخامسة"; else -> year.toString() }
 
 

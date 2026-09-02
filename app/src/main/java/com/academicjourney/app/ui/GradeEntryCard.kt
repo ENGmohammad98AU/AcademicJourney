@@ -5,6 +5,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -134,7 +135,7 @@ fun GradeEntryCard(course: CourseEntity, program: ProgramEntity, onSave: (Course
             preview?.let {
                 val passed = it >= program.passingGrade
                 Surface(
-                    color = if (passed) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.errorContainer,
+                    color = if (passed) Color(0xFFDDF7E6) else Color(0xFFFFE3E1),
                     shape = MaterialTheme.shapes.medium,
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -145,7 +146,11 @@ fun GradeEntryCard(course: CourseEntity, program: ProgramEntity, onSave: (Course
                         }
                         Column {
                             Text("الحالة", style = MaterialTheme.typography.labelMedium)
-                            Text(if (passed) "ناجح" else "راسب", fontWeight = FontWeight.Bold)
+                            Text(
+                                if (passed) "ناجح" else "راسب",
+                                fontWeight = FontWeight.Bold,
+                                color = if (passed) Color(0xFF146C38) else Color(0xFFB3261E)
+                            )
                         }
                     }
                 }
