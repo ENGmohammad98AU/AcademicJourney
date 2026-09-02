@@ -5,3 +5,14 @@ import androidx.room.*
 data class ProgramEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val universityId:Long,val name:String,val degreeType:String="",val gradingScheme:String,val assignmentWeight:Double=0.0,val examWeight:Double=0.0,val passingGrade:Double)
 @Entity(foreignKeys=[ForeignKey(entity=ProgramEntity::class,parentColumns=["id"],childColumns=["programId"],onDelete=ForeignKey.CASCADE)],indices=[Index("programId")])
 data class CourseEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,val programId:Long,val name:String,val code:String="",val language:String="",val academicYear:Int,val semester:Int,val practicalGrade:Double?=null,val theoryGrade:Double?=null,val assignmentGrade:Double?=null,val examGrade:Double?=null,val notes:String="")
+
+@Entity(indices = [Index(value = ["branch", "subject"], unique = true)])
+data class HighSchoolGradeEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val branch: String,
+    val subject: String,
+    val maxGrade: Int,
+    val includedInPercentage: Boolean,
+    val displayOrder: Int,
+    val grade: Int? = null
+)

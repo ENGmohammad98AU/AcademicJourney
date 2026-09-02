@@ -22,6 +22,7 @@ import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -31,19 +32,26 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.academicjourney.app.R
 import com.academicjourney.app.data.CourseEntity
+import com.academicjourney.app.data.HighSchoolGradeEntity
+import com.academicjourney.app.data.HighSchoolSeedData
 import com.academicjourney.app.data.ProgramEntity
 import com.academicjourney.app.data.UniversityEntity
 import com.academicjourney.app.domain.GradeCalculator
 import java.util.Locale
 
 private sealed interface Screen {
+    data object Home : Screen
     data object Universities : Screen
+    data object HighSchool : Screen
+    data class HighSchoolBranch(val branch: String) : Screen
     data object Statistics : Screen
     data class University(val id: Long) : Screen
     data class Program(val id: Long) : Screen
@@ -57,40 +65,62 @@ fun AcademicApp(vm: AcademicViewModel) {
     val universities by vm.universities.collectAsState()
     val programs by vm.programs.collectAsState()
     val courses by vm.courses.collectAsState()
-    var screen by remember { mutableStateOf<Screen>(Screen.Universities) }
+    val highSchoolGrades by vm.highSchoolGrades.collectAsState()
+    var screen by remember { mutableStateOf<Screen>(Screen.Home) }
 
     LaunchedEffect(Unit) { vm.ensureSeeded() }
 
-    BackHandler(enabled = screen !is Screen.Universities) {
+    BackHandler(enabled = screen !is Screen.Home) {
         screen = when (val s = screen) {
+            Screen.Home -> Screen.Home
+            Screen.Universities -> Screen.Home
+            Screen.HighSchool -> Screen.Home
+            is Screen.HighSchoolBranch -> Screen.HighSchool
             is Screen.University -> Screen.Universities
             is Screen.Program -> programs.firstOrNull { it.id == s.id }?.let { Screen.University(it.universityId) } ?: Screen.Universities
             is Screen.Year -> Screen.Program(s.programId)
             is Screen.Semester -> Screen.Year(s.programId, s.year)
             is Screen.Course -> {
                 val c = courses.firstOrNull { it.id == s.id }
-                if (c != null) Screen.Semester(c.programId, c.academicYear, c.semester) else Screen.Universities
+                if (c != null) Screen.Semester(c.programId, c.academicYear, c.semester) else Screen.Home
             }
-            Screen.Statistics -> Screen.Universities
-            Screen.Universities -> Screen.Universities
+            Screen.Statistics -> Screen.Home
         }
     }
 
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
         AcademicJourneyTheme {
             when (val s = screen) {
+                Screen.Home -> HomeScreen(
+                    onUniversities = { screen = Screen.Universities },
+                    onHighSchool = { screen = Screen.HighSchool },
+                    onStatistics = { screen = Screen.Statistics }
+                )
                 Screen.Universities -> UniversitiesScreen(
                     universities = universities,
                     programs = programs,
                     courses = courses,
+                    onBack = { screen = Screen.Home },
+                    onHome = { screen = Screen.Home },
                     onUniversity = { screen = Screen.University(it) },
                     onStatistics = { screen = Screen.Statistics }
+                )
+                Screen.HighSchool -> HighSchoolScreen(
+                    grades = highSchoolGrades,
+                    onBack = { screen = Screen.Home },
+                    onBranch = { screen = Screen.HighSchoolBranch(it) }
+                )
+                is Screen.HighSchoolBranch -> HighSchoolBranchScreen(
+                    branch = s.branch,
+                    grades = highSchoolGrades.filter { it.branch == s.branch },
+                    onBack = { screen = Screen.HighSchool },
+                    onSave = vm::saveHighSchoolGrade
                 )
                 Screen.Statistics -> StatisticsScreen(
                     universities = universities,
                     programs = programs,
                     courses = courses,
-                    onHome = { screen = Screen.Universities },
+                    onHome = { screen = Screen.Home },
                     onProgram = { screen = Screen.Program(it) }
                 )
                 is Screen.University -> UniversityScreen(
@@ -133,7 +163,7 @@ fun AcademicApp(vm: AcademicViewModel) {
                         program = program,
                         onBack = {
                             if (course != null) screen = Screen.Semester(course.programId, course.academicYear, course.semester)
-                            else screen = Screen.Universities
+                            else screen = Screen.Home
                         },
                         onSave = vm::saveCourse
                     )
@@ -163,10 +193,316 @@ private fun RootNavigationBar(homeSelected: Boolean, onHome: () -> Unit, onStati
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
+private fun HomeScreen(
+    onUniversities: () -> Unit,
+    onHighSchool: () -> Unit,
+    onStatistics: () -> Unit
+) {
+    Scaffold(
+        topBar = {
+            CenterAlignedTopAppBar(
+                title = {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("مسيرتي الأكاديمية", fontWeight = FontWeight.Bold)
+                        Text("اختر القسم الذي تريد متابعته", style = MaterialTheme.typography.labelMedium)
+                    }
+                }
+            )
+        },
+        bottomBar = { RootNavigationBar(true, onHome = {}, onStatistics = onStatistics) }
+    ) { padding ->
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(2),
+            modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp),
+            contentPadding = PaddingValues(vertical = 18.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                SectionHeader("الأقسام الرئيسية", "كل قسم منظم ببطاقات ثنائية الأعمدة لسهولة الوصول")
+            }
+            item {
+                PortalCard(
+                    title = "الجامعات",
+                    subtitle = "البرامج والمقررات والتقدم الأكاديمي",
+                    image = R.drawable.home_universities,
+                    onClick = onUniversities
+                )
+            }
+            item {
+                PortalCard(
+                    title = "الثانوية العامة",
+                    subtitle = "درجات الفرعين العلمي والأدبي وحساب النسبة",
+                    image = R.drawable.home_high_school,
+                    onClick = onHighSchool
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PortalCard(
+    title: String,
+    subtitle: String,
+    @DrawableRes image: Int,
+    onClick: () -> Unit
+) {
+    ElevatedCard(onClick = onClick, modifier = Modifier.fillMaxWidth().height(242.dp)) {
+        Box(Modifier.fillMaxSize()) {
+            Image(
+                painter = painterResource(image),
+                contentDescription = title,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+            Box(
+                Modifier.fillMaxSize().background(
+                    Brush.verticalGradient(
+                        colors = listOf(Color.Transparent, Color(0xED172235)),
+                        startY = 75f
+                    )
+                )
+            )
+            Column(
+                Modifier.align(Alignment.BottomStart).padding(13.dp),
+                verticalArrangement = Arrangement.spacedBy(5.dp)
+            ) {
+                Text(
+                    title,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Black,
+                    color = Color.White
+                )
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.White.copy(alpha = 0.9f),
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun HighSchoolScreen(
+    grades: List<HighSchoolGradeEntity>,
+    onBack: () -> Unit,
+    onBranch: (String) -> Unit
+) {
+    val scientific = grades.filter { it.branch == HighSchoolSeedData.SCIENTIFIC_2016 }
+    val literary = grades.filter { it.branch == HighSchoolSeedData.LITERARY_2026 }
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("الثانوية العامة", fontWeight = FontWeight.Bold) },
+                navigationIcon = { BackButton(onBack) }
+            )
+        }
+    ) { padding ->
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(2),
+            modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp),
+            contentPadding = PaddingValues(vertical = 18.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                SectionHeader("اختر الفرع", "أدخل الدرجات ضمن حدود كل مادة وسيُحسب المجموع والنسبة تلقائيًا")
+            }
+            item {
+                HighSchoolBranchCard(
+                    title = "الفرع العلمي",
+                    year = "2016",
+                    image = R.drawable.high_school_scientific,
+                    percentage = highSchoolPercentage(scientific),
+                    onClick = { onBranch(HighSchoolSeedData.SCIENTIFIC_2016) }
+                )
+            }
+            item {
+                HighSchoolBranchCard(
+                    title = "الفرع الأدبي",
+                    year = "2026",
+                    image = R.drawable.high_school_literary,
+                    percentage = highSchoolPercentage(literary),
+                    onClick = { onBranch(HighSchoolSeedData.LITERARY_2026) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun HighSchoolBranchCard(
+    title: String,
+    year: String,
+    @DrawableRes image: Int,
+    percentage: Double,
+    onClick: () -> Unit
+) {
+    ElevatedCard(onClick = onClick, modifier = Modifier.fillMaxWidth().height(242.dp)) {
+        Column {
+            Box(Modifier.fillMaxWidth().weight(1f)) {
+                Image(
+                    painter = painterResource(image),
+                    contentDescription = "$title $year",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+                Box(
+                    Modifier.fillMaxSize().background(
+                        Brush.verticalGradient(listOf(Color.Transparent, Color(0xE1172235)), startY = 50f)
+                    )
+                )
+                Column(Modifier.align(Alignment.BottomStart).padding(12.dp)) {
+                    Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black, color = Color.White)
+                    Text(year, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black, color = Color.White)
+                }
+            }
+            Text(
+                "النسبة الحالية: ${formatGrade(percentage)}%",
+                modifier = Modifier.padding(12.dp),
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun HighSchoolBranchScreen(
+    branch: String,
+    grades: List<HighSchoolGradeEntity>,
+    onBack: () -> Unit,
+    onSave: (HighSchoolGradeEntity) -> Unit
+) {
+    val isScientific = branch == HighSchoolSeedData.SCIENTIFIC_2016
+    val branchTitle = if (isScientific) "الفرع العلمي 2016" else "الفرع الأدبي 2026"
+    val included = grades.filter { it.includedInPercentage }
+    val total = included.sumOf { it.grade ?: 0 }
+    val maximum = included.sumOf { it.maxGrade }
+    val excludedNames = grades.filterNot { it.includedInPercentage }.joinToString(" و") { it.subject }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(branchTitle, fontWeight = FontWeight.Bold) },
+                navigationIcon = { BackButton(onBack) }
+            )
+        }
+    ) { padding ->
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp),
+            contentPadding = PaddingValues(vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            item {
+                ElevatedCard(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("النتيجة الحالية", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            MetricBox("المجموع", total.toString(), Modifier.weight(1f))
+                            MetricBox("العظمى", maximum.toString(), Modifier.weight(1f))
+                            MetricBox("النسبة", "${formatGrade(highSchoolPercentage(grades))}%", Modifier.weight(1f))
+                        }
+                        LinearProgressIndicator(
+                            progress = { if (maximum == 0) 0f else (total.toFloat() / maximum).coerceIn(0f, 1f) },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Text(
+                            "لا يدخل في حساب النسبة: $excludedNames.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+            item { SectionHeader("المواد والدرجات", "الدرجة المقبولة من 0 حتى الدرجة العظمى الموضحة لكل مادة") }
+            if (grades.isEmpty()) {
+                item { EmptyState("يتم الآن تجهيز جدول المواد...") }
+            }
+            items(grades, key = { it.id }) { item ->
+                SubjectGradeCard(item = item, onSave = onSave)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SubjectGradeCard(
+    item: HighSchoolGradeEntity,
+    onSave: (HighSchoolGradeEntity) -> Unit
+) {
+    var value by remember(item.id, item.grade) { mutableStateOf(item.grade?.toString().orEmpty()) }
+    ElevatedCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(item.subject, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text("الدرجة العظمى: ${item.maxGrade}", style = MaterialTheme.typography.bodySmall)
+                }
+                if (!item.includedInPercentage) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.secondaryContainer,
+                        shape = RoundedCornerShape(50)
+                    ) {
+                        Text("مستثناة من النسبة", Modifier.padding(horizontal = 10.dp, vertical = 6.dp), style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+            }
+            OutlinedTextField(
+                value = value,
+                onValueChange = { input ->
+                    when {
+                        input.isEmpty() -> {
+                            value = ""
+                            onSave(item.copy(grade = null))
+                        }
+                        input.all { it.isDigit() } -> {
+                            val number = input.toIntOrNull()
+                            if (number != null && number in 0..item.maxGrade) {
+                                value = input
+                                onSave(item.copy(grade = number))
+                            }
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("الدرجة من ${item.maxGrade}") },
+                supportingText = {
+                    Text(
+                        if (item.includedInPercentage) "تدخل هذه المادة في حساب النسبة."
+                        else "تُحفظ الدرجة للمراجعة ولا تدخل في حساب النسبة."
+                    )
+                },
+                suffix = { Text("/ ${item.maxGrade}") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next)
+            )
+        }
+    }
+}
+
+private fun highSchoolPercentage(grades: List<HighSchoolGradeEntity>): Double {
+    val included = grades.filter { it.includedInPercentage }
+    val maximum = included.sumOf { it.maxGrade }
+    if (maximum == 0) return 0.0
+    return included.sumOf { it.grade ?: 0 }.toDouble() * 100.0 / maximum.toDouble()
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
 private fun UniversitiesScreen(
     universities: List<UniversityEntity>,
     programs: List<ProgramEntity>,
     courses: List<CourseEntity>,
+    onBack: () -> Unit,
+    onHome: () -> Unit,
     onUniversity: (Long) -> Unit,
     onStatistics: () -> Unit
 ) {
@@ -175,16 +511,12 @@ private fun UniversitiesScreen(
 
     Scaffold(
         topBar = {
-            CenterAlignedTopAppBar(
-                title = {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("مسيرتي الأكاديمية", fontWeight = FontWeight.Bold)
-                        Text("لوحة التحكم الشخصية", style = MaterialTheme.typography.labelMedium)
-                    }
-                }
+            TopAppBar(
+                title = { Text("الجامعات", fontWeight = FontWeight.Bold) },
+                navigationIcon = { BackButton(onBack) }
             )
         },
-        bottomBar = { RootNavigationBar(true, onHome = {}, onStatistics = onStatistics) }
+        bottomBar = { RootNavigationBar(true, onHome = onHome, onStatistics = onStatistics) }
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             Text(
