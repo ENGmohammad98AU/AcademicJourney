@@ -6,6 +6,7 @@ import android.print.PrintManager
 import android.util.Base64
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import com.academicjourney.app.BuildConfig
 import com.academicjourney.app.R
 import com.academicjourney.app.data.CourseEntity
 import com.academicjourney.app.data.HighSchoolGradeEntity
@@ -76,6 +77,7 @@ object ReportPrinter {
 
         val body = """
           <header><img src="${universityLogoData(context, universityName)}"><div class="brand">
+            <div class="appIdentity">مسيرتي الأكاديمية • الإصدار ${escape(BuildConfig.VERSION_NAME)}</div>
             <div class="university">${escape(universityName)}</div>
             <h1>تقرير فرع ${escape(program.name)}</h1><div>${escape(program.degreeType)}</div>
           </div></header>
@@ -113,7 +115,11 @@ object ReportPrinter {
         val excluded = grades.filterNot { it.includedInPercentage }.joinToString("، ") { it.subject }
             .ifBlank { "لا توجد مواد مستبعدة" }
         val body = """
-          <h1>تقرير ${escape(branchTitle)}</h1><div class="note">الشهادة الثانوية العامة</div>
+          <header><img src="${appLogoData(context)}"><div class="brand">
+            <div class="appIdentity">مسيرتي الأكاديمية • الإصدار ${escape(BuildConfig.VERSION_NAME)}</div>
+            <div class="university">الشهادة الثانوية العامة</div>
+            <h1>تقرير ${escape(branchTitle)}</h1><div>تقرير الدرجات والنسب التفصيلية</div>
+          </div></header>
           <section class="summary">
             <div><b>المجموع:</b> ${summary.totalGrade} / ${summary.maximumGrade}</div>
             <div><b>النسبة:</b> ${formatGrade(summary.percentage)}%</div>
@@ -158,7 +164,8 @@ object ReportPrinter {
           header { direction: ltr; display: grid; grid-template-columns: 76px 1fr; align-items: center;
                    gap: 14px; border-bottom: 2px solid #145d70; padding-bottom: 8px; margin-bottom: 10px; }
           header img { width: 70px; height: 70px; object-fit: contain; justify-self: start; }
-          .brand { direction: rtl; text-align: right; } .university { font-size: 15px; font-weight: bold; }
+          .brand { direction: rtl; text-align: right; } .appIdentity { color:#49636b; font-size:9px; }
+          .university { font-size: 15px; font-weight: bold; }
           h1 { color: #145d70; font-size: 21px; margin: 2px 0; } h2 { color: #145d70; font-size: 15px; margin: 13px 0 5px; }
           .summary { display: grid; grid-template-columns: repeat(4,1fr); gap: 6px; padding: 9px;
                      background: #eef7f8; border-radius: 8px; margin-bottom: 7px; }
@@ -180,8 +187,13 @@ object ReportPrinter {
           .name,.grade { font-weight:bold; } .passed { color:#146c38; font-weight:bold; }
           .failed { color:#b3261e; font-weight:bold; } .assist { color:#6b4f00; background:#fff1bd; font-weight:bold; }
           footer { margin-top:12px; color:#6d7784; font-size:9px; text-align:center; }
-        </style></head><body>$body<footer>مسيرتي الأكاديمية • تاريخ التقرير: $date</footer></body></html>
+        </style></head><body>$body<footer>مسيرتي الأكاديمية • الإصدار ${escape(BuildConfig.VERSION_NAME)} • تاريخ التقرير: $date</footer></body></html>
         """.trimIndent()
+    }
+
+    private fun appLogoData(context: Context): String {
+        val bytes = context.resources.openRawResource(R.drawable.ic_launcher_foreground_image).use { it.readBytes() }
+        return "data:image/png;base64,${Base64.encodeToString(bytes, Base64.NO_WRAP)}"
     }
 
     private fun universityLogoData(context: Context, name: String): String {

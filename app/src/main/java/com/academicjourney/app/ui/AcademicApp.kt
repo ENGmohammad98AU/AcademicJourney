@@ -18,6 +18,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.Canvas
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.DrawableRes
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -60,6 +62,8 @@ import com.academicjourney.app.domain.GradeCalculator
 import com.academicjourney.app.domain.HighSchoolCalculator
 import com.academicjourney.app.domain.StudentStandingCalculator
 import kotlinx.coroutines.delay
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 
 private sealed interface Screen {
@@ -83,6 +87,24 @@ fun AcademicApp(vm: AcademicViewModel) {
     val highSchoolGrades by vm.highSchoolGrades.collectAsState()
     var screen by remember { mutableStateOf<Screen>(Screen.Home) }
     var showIntro by rememberSaveable { mutableStateOf(true) }
+    var backupMessage by rememberSaveable { mutableStateOf<String?>(null) }
+
+    val createBackupLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        uri?.let {
+            backupMessage = "جارٍ تجهيز النسخة الاحتياطية..."
+            vm.exportBackup(it) { result -> backupMessage = result }
+        }
+    }
+    val restoreBackupLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri?.let {
+            backupMessage = "جارٍ التحقق من النسخة الاحتياطية واستعادة البيانات..."
+            vm.importBackup(it) { result -> backupMessage = result }
+        }
+    }
 
     LaunchedEffect(Unit) { vm.ensureSeeded() }
 
@@ -112,7 +134,15 @@ fun AcademicApp(vm: AcademicViewModel) {
                 Screen.Home -> HomeScreen(
                     onUniversities = { screen = Screen.Universities },
                     onHighSchool = { screen = Screen.HighSchool },
-                    onStatistics = { screen = Screen.Statistics }
+                    onStatistics = { screen = Screen.Statistics },
+                    onExportBackup = {
+                        val stamp = SimpleDateFormat("yyyyMMdd-HHmm", Locale.US).format(Date())
+                        createBackupLauncher.launch("AcademicJourney-backup-$stamp.json")
+                    },
+                    onImportBackup = {
+                        restoreBackupLauncher.launch(arrayOf("application/json", "text/plain"))
+                    },
+                    backupMessage = backupMessage
                 )
                 Screen.Universities -> UniversitiesScreen(
                     universities = universities,
@@ -349,7 +379,10 @@ private fun InteractiveElevatedCard(
 private fun HomeScreen(
     onUniversities: () -> Unit,
     onHighSchool: () -> Unit,
-    onStatistics: () -> Unit
+    onStatistics: () -> Unit,
+    onExportBackup: () -> Unit,
+    onImportBackup: () -> Unit,
+    backupMessage: String?
 ) {
     Scaffold(
         topBar = {
@@ -389,6 +422,53 @@ private fun HomeScreen(
                     image = R.drawable.home_high_school,
                     onClick = onHighSchool
                 )
+            }
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                BackupCard(
+                    onExportBackup = onExportBackup,
+                    onImportBackup = onImportBackup,
+                    message = backupMessage
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun BackupCard(
+    onExportBackup: () -> Unit,
+    onImportBackup: () -> Unit,
+    message: String?
+) {
+    ElevatedCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("حماية البيانات", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text(
+                "ملف PDF مناسب للعرض والطباعة. أما ملف النسخة الاحتياطية JSON فيحفظ العلامات والملاحظات وأرقام المقررات ويمكن استعادته داخل التطبيق بعد التثبيت أو التحديث.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                InteractiveButton(onClick = onExportBackup, modifier = Modifier.weight(1f)) {
+                    Text("تصدير نسخة احتياطية", fontWeight = FontWeight.Bold)
+                }
+                InteractiveOutlinedButton(onClick = onImportBackup, modifier = Modifier.weight(1f)) {
+                    Text("استعادة نسخة", fontWeight = FontWeight.Bold)
+                }
+            }
+            if (!message.isNullOrBlank()) {
+                Surface(
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    shape = MaterialTheme.shapes.medium,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        message,
+                        modifier = Modifier.padding(10.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
             }
         }
     }
@@ -595,7 +675,7 @@ private fun HighSchoolBranchScreen(
                             onClick = { ReportPrinter.printHighSchoolReport(context, branchTitle, grades) },
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("طباعة أو حفظ تقرير PDF", fontWeight = FontWeight.Bold)
+                            Text("تصدير أو طباعة تقرير PDF", fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -1078,7 +1158,7 @@ private fun ProgramScreen(
                             },
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("تصدير تقرير PDF لهذا الفرع", fontWeight = FontWeight.Bold)
+                            Text("تصدير أو طباعة PDF لهذا الفرع", fontWeight = FontWeight.Bold)
                         }
                     }
                 }
