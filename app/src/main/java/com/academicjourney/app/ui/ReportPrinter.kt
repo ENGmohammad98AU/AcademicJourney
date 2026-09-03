@@ -1,6 +1,8 @@
 package com.academicjourney.app.ui
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.print.PrintAttributes
 import android.print.PrintManager
 import android.util.Base64
@@ -14,6 +16,7 @@ import com.academicjourney.app.data.ProgramEntity
 import com.academicjourney.app.domain.GradeCalculator
 import com.academicjourney.app.domain.HighSchoolCalculator
 import com.academicjourney.app.domain.StudentStandingCalculator
+import java.io.ByteArrayOutputStream
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
@@ -192,7 +195,14 @@ object ReportPrinter {
     }
 
     private fun appLogoData(context: Context): String {
-        val bytes = context.resources.openRawResource(R.drawable.ic_launcher_foreground_image).use { it.readBytes() }
+        val bitmap = checkNotNull(
+            BitmapFactory.decodeResource(context.resources, R.drawable.ic_launcher_foreground_image)
+        ) { "تعذر تحميل شعار التطبيق." }
+        val bytes = ByteArrayOutputStream().use { output ->
+            bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)
+            output.toByteArray()
+        }
+        bitmap.recycle()
         return "data:image/png;base64,${Base64.encodeToString(bytes, Base64.NO_WRAP)}"
     }
 
