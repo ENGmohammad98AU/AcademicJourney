@@ -19,6 +19,32 @@ fun GradeEntryCard(course: CourseEntity, program: ProgramEntity, onSave: (Course
     val svu = program.gradingScheme == GradeCalculator.SVU_WEIGHTED
     val andalus = program.gradingScheme == GradeCalculator.ANDALUS_SPLIT_PRACTICAL_THEORY
 
+    if (course.passedWithoutGrade) {
+        ElevatedCard(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("حالة المقرر", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Surface(color = Color(0xFFDDF7E6), shape = MaterialTheme.shapes.medium) {
+                    Text(
+                        "ناجح بالترفيع دون علامة",
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
+                        color = Color(0xFF146C38),
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                Text(
+                    course.notes.ifBlank { "تم اعتماد نجاح هذا المقرر دون إدخال علامة." },
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Text(
+                    "يُحتسب المقرر ضمن المواد الناجحة والساعات المنجزة، ولا يدخل في حساب المعدل.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        return
+    }
+
     val existingFirst = when {
         svu -> course.assignmentGrade
         andalus -> course.studentWorkGrade ?: course.practicalGrade
@@ -50,17 +76,23 @@ fun GradeEntryCard(course: CourseEntity, program: ProgramEntity, onSave: (Course
             GradeCalculator.validatePracticalTheory(firstNumber, secondNumber)
         else -> null
     }
-    val preview = if (validation == null) {
+    val previewCourse = if (validation == null) {
         when {
             andalus && firstNumber != null && secondNumber != null && thirdNumber != null ->
-                firstNumber + secondNumber + thirdNumber
+                course.copy(
+                    studentWorkGrade = firstNumber,
+                    practicalExamGrade = secondNumber,
+                    practicalGrade = firstNumber + secondNumber,
+                    theoryGrade = thirdNumber
+                )
             svu && firstNumber != null && secondNumber != null ->
-                firstNumber * program.assignmentWeight / 100.0 +
-                    secondNumber * program.examWeight / 100.0
-            !svu && firstNumber != null && secondNumber != null -> firstNumber + secondNumber
+                course.copy(assignmentGrade = firstNumber, examGrade = secondNumber)
+            !svu && firstNumber != null && secondNumber != null ->
+                course.copy(practicalGrade = firstNumber, theoryGrade = secondNumber)
             else -> null
         }
     } else null
+    val preview = previewCourse?.let { GradeCalculator.calculate(it, program) }
 
     val hasExisting = existingFirst != null || existingSecond != null || existingThird != null
 
@@ -117,6 +149,18 @@ fun GradeEntryCard(course: CourseEntity, program: ProgramEntity, onSave: (Course
                         },
                         style = MaterialTheme.typography.bodySmall
                     )
+                    Text(
+                        "أي كسر في المحصلة يُجبر إلى العدد الصحيح الأعلى؛ مثال: 76.1 تصبح 77.",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    if (GradeCalculator.maximumAssistance(program) > 0) {
+                        Text(
+                            "تُضاف تلقائيًا درجة أو درجتا مساعدة فقط عندما تكفيان للوصول إلى حد النجاح، ويظهر ذلك بوضوح في النتيجة والتقرير.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
                 }
             }
 
@@ -132,8 +176,9 @@ fun GradeEntryCard(course: CourseEntity, program: ProgramEntity, onSave: (Course
                 Text(it, color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
             }
 
-            preview?.let {
-                val passed = it >= program.passingGrade
+            preview?.let { previewResult ->
+                val finalGrade = previewResult.finalGrade ?: return@let
+                val passed = previewResult.isPassed == true
                 Surface(
                     color = if (passed) Color(0xFFDDF7E6) else Color(0xFFFFE3E1),
                     shape = MaterialTheme.shapes.medium,
@@ -142,7 +187,23 @@ fun GradeEntryCard(course: CourseEntity, program: ProgramEntity, onSave: (Course
                     Row(Modifier.padding(14.dp)) {
                         Column(Modifier.weight(1f)) {
                             Text("المجموع النهائي", style = MaterialTheme.typography.labelMedium)
-                            Text("${formatEntryGrade(it)}/100", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                            Text("${formatEntryGrade(finalGrade)}/100", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                            val raw = previewResult.rawGrade
+                            val rounded = previewResult.roundedGrade
+                            if (raw != null && rounded != null && raw != rounded) {
+                                Text(
+                                    "المحصلة ${formatEntryGrade(raw)} ← بعد جبر الكسر ${formatEntryGrade(rounded)}",
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
+                            if (previewResult.assistancePoints > 0) {
+                                Text(
+                                    "مساعدة +${previewResult.assistancePoints}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF146C38)
+                                )
+                            }
                         }
                         Column {
                             Text("الحالة", style = MaterialTheme.typography.labelMedium)

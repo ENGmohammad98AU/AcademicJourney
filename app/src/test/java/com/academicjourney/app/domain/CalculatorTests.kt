@@ -110,6 +110,95 @@ class CalculatorTests {
         )
     }
 
+    @Test
+    fun everyUniversityFractionIsRoundedUp() {
+        val weighted = program(GradeCalculator.SVU_WEIGHTED, 20.0, 80.0, 50.0)
+        val result = GradeCalculator.calculate(
+            course(assignmentGrade = 76.5, examGrade = 76.0),
+            weighted
+        )
+
+        assertEquals(76.1, result.rawGrade ?: 0.0, 0.001)
+        assertEquals(77.0, result.roundedGrade ?: 0.0, 0.001)
+        assertEquals(77.0, result.finalGrade ?: 0.0, 0.001)
+    }
+
+    @Test
+    fun mediaAndHumanResourcesReceiveOnlyNeededAssistanceUpToTwoPoints() {
+        val media = program(
+            GradeCalculator.SVU_WEIGHTED,
+            assignment = 20.0,
+            exam = 80.0,
+            passing = 50.0,
+            name = "الإعلام والاتصال"
+        )
+        val onePoint = GradeCalculator.calculate(course(assignmentGrade = 49.0, examGrade = 49.0), media)
+        val twoPoints = GradeCalculator.calculate(course(assignmentGrade = 48.0, examGrade = 48.0), media)
+        val outsideLimit = GradeCalculator.calculate(course(assignmentGrade = 47.0, examGrade = 47.0), media)
+
+        assertEquals(1, onePoint.assistancePoints)
+        assertEquals(50.0, onePoint.finalGrade ?: 0.0, 0.001)
+        assertTrue(onePoint.isPassed == true)
+        assertEquals(2, twoPoints.assistancePoints)
+        assertEquals(50.0, twoPoints.finalGrade ?: 0.0, 0.001)
+        assertTrue(twoPoints.isPassed == true)
+        assertEquals(0, outsideLimit.assistancePoints)
+        assertEquals(47.0, outsideLimit.finalGrade ?: 0.0, 0.001)
+        assertFalse(outsideLimit.isPassed == true)
+
+        val humanResources = program(
+            GradeCalculator.SVU_WEIGHTED,
+            assignment = 25.0,
+            exam = 75.0,
+            passing = 60.0,
+            name = "علوم الإدارة – إدارة الموارد البشرية"
+        )
+        val hrResult = GradeCalculator.calculate(course(assignmentGrade = 59.0, examGrade = 59.0), humanResources)
+        assertEquals(1, hrResult.assistancePoints)
+        assertEquals(60.0, hrResult.finalGrade ?: 0.0, 0.001)
+    }
+
+    @Test
+    fun assistanceDoesNotApplyToSvuMasters() {
+        val master = program(
+            GradeCalculator.SVU_WEIGHTED,
+            assignment = 30.0,
+            exam = 70.0,
+            passing = 60.0,
+            name = "ماجستير التأهيل والتخصص في إدارة الأعمال"
+        )
+        val result = GradeCalculator.calculate(course(assignmentGrade = 59.0, examGrade = 59.0), master)
+
+        assertEquals(0, result.assistancePoints)
+        assertEquals(59.0, result.finalGrade ?: 0.0, 0.001)
+        assertFalse(result.isPassed == true)
+    }
+
+    @Test
+    fun weightedAverageUsesCreditHours() {
+        val weighted = program(GradeCalculator.SVU_WEIGHTED, 20.0, 80.0, 50.0)
+        val courses = listOf(
+            course(id = 1, assignmentGrade = 100.0, examGrade = 100.0, creditHours = 6),
+            course(id = 2, assignmentGrade = 50.0, examGrade = 50.0, creditHours = 3)
+        )
+
+        assertEquals(83.333, GradeCalculator.average(courses, weighted) ?: 0.0, 0.01)
+    }
+
+    @Test
+    fun recognizedPassCountsAsSuccessWithoutEnteringTheAverage() {
+        val weighted = program(GradeCalculator.SVU_WEIGHTED, 20.0, 80.0, 60.0)
+        val recognized = course(id = 1, creditHours = 5, passedWithoutGrade = true)
+        val graded = course(id = 2, assignmentGrade = 80.0, examGrade = 80.0, creditHours = 5)
+
+        val recognizedResult = GradeCalculator.calculate(recognized, weighted)
+
+        assertTrue(recognizedResult.isPassed == true)
+        assertTrue(recognizedResult.passedWithoutGrade)
+        assertNull(recognizedResult.finalGrade)
+        assertEquals(80.0, GradeCalculator.average(listOf(recognized, graded), weighted) ?: 0.0, 0.001)
+    }
+
     private fun highSchool(name: String, maximum: Int, included: Boolean, grade: Int) =
         HighSchoolGradeEntity(
             branch = "test",
@@ -120,11 +209,17 @@ class CalculatorTests {
             grade = grade
         )
 
-    private fun program(scheme: String, assignment: Double, exam: Double, passing: Double) =
+    private fun program(
+        scheme: String,
+        assignment: Double,
+        exam: Double,
+        passing: Double,
+        name: String = "اختبار"
+    ) =
         ProgramEntity(
             id = 1,
             universityId = 1,
-            name = "اختبار",
+            name = name,
             gradingScheme = scheme,
             assignmentWeight = assignment,
             examWeight = exam,
@@ -132,23 +227,30 @@ class CalculatorTests {
         )
 
     private fun course(
+        id: Long = 1,
         practicalGrade: Double? = null,
         theoryGrade: Double? = null,
         assignmentGrade: Double? = null,
         examGrade: Double? = null,
         studentWorkGrade: Double? = null,
-        practicalExamGrade: Double? = null
+        practicalExamGrade: Double? = null,
+        creditHours: Int? = null,
+        academicYear: Int = 1,
+        semester: Int = 1,
+        passedWithoutGrade: Boolean = false
     ) = CourseEntity(
-        id = 1,
+        id = id,
         programId = 1,
         name = "اختبار",
-        academicYear = 1,
-        semester = 1,
+        academicYear = academicYear,
+        semester = semester,
         practicalGrade = practicalGrade,
         theoryGrade = theoryGrade,
         assignmentGrade = assignmentGrade,
         examGrade = examGrade,
         studentWorkGrade = studentWorkGrade,
-        practicalExamGrade = practicalExamGrade
+        practicalExamGrade = practicalExamGrade,
+        creditHours = creditHours,
+        passedWithoutGrade = passedWithoutGrade
     )
 }

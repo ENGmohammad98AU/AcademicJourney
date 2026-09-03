@@ -18,7 +18,9 @@ data class CourseEntity(
     val examGrade: Double? = null,
     val notes: String = "",
     val studentWorkGrade: Double? = null,
-    val practicalExamGrade: Double? = null
+    val practicalExamGrade: Double? = null,
+    val creditHours: Int? = null,
+    @ColumnInfo(defaultValue = "0") val passedWithoutGrade: Boolean = false
 )
 
 @Entity(indices = [Index(value = ["branch", "subject"], unique = true)])

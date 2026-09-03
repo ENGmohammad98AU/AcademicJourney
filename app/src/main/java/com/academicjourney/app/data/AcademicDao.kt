@@ -14,4 +14,12 @@ import kotlinx.coroutines.flow.Flow
 @Insert(onConflict = OnConflictStrategy.IGNORE) suspend fun insertHighSchoolGrade(item:HighSchoolGradeEntity):Long
 @Update suspend fun updateCourse(item:CourseEntity)
 @Update suspend fun updateHighSchoolGrade(item:HighSchoolGradeEntity)
+@Query("UPDATE CourseEntity SET creditHours = :hours WHERE programId = :programId AND code = :code")
+suspend fun updateCourseCreditHours(programId: Long, code: String, hours: Int)
+@Query(
+    "UPDATE CourseEntity SET passedWithoutGrade = 1, " +
+        "notes = CASE WHEN TRIM(notes) = '' THEN :note ELSE notes || CHAR(10) || :note END " +
+        "WHERE programId = :programId AND code = :code"
+)
+suspend fun markCoursePassedWithoutGrade(programId: Long, code: String, note: String)
 }

@@ -26,7 +26,7 @@ fun calculateAcademicProgress(
     courses.forEach { course ->
         val program = programs[course.programId] ?: return@forEach
         val result = GradeCalculator.calculate(course, program)
-        if (result?.isPassed == true) passed++
+        if (result.isPassed == true) passed++
     }
     return AcademicProgress(passedCourses = passed, totalCourses = courses.size)
 }

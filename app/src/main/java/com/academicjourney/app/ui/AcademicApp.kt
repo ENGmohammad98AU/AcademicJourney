@@ -1,5 +1,6 @@
 package com.academicjourney.app.ui
 
+import android.media.MediaPlayer
 import android.net.Uri
 import android.widget.VideoView
 import kotlin.math.roundToInt
@@ -57,6 +58,7 @@ import com.academicjourney.app.data.ProgramEntity
 import com.academicjourney.app.data.UniversityEntity
 import com.academicjourney.app.domain.GradeCalculator
 import com.academicjourney.app.domain.HighSchoolCalculator
+import com.academicjourney.app.domain.StudentStandingCalculator
 import kotlinx.coroutines.delay
 import java.util.Locale
 
@@ -201,6 +203,8 @@ fun AcademicApp(vm: AcademicViewModel) {
 private fun IntroVideoScreen(onFinished: () -> Unit) {
     val context = LocalContext.current
     var finished by remember { mutableStateOf(false) }
+    var mediaPlayer by remember { mutableStateOf<MediaPlayer?>(null) }
+    var musicMuted by rememberSaveable { mutableStateOf(false) }
     val finishOnce: () -> Unit = {
         if (!finished) {
             finished = true
@@ -219,7 +223,9 @@ private fun IntroVideoScreen(onFinished: () -> Unit) {
                 VideoView(viewContext).apply {
                     setVideoURI(Uri.parse("android.resource://${context.packageName}/${R.raw.app_intro}"))
                     setOnPreparedListener { player ->
+                        mediaPlayer = player
                         player.isLooping = false
+                        player.setVolume(if (musicMuted) 0f else 0.32f, if (musicMuted) 0f else 0.32f)
                         start()
                     }
                     setOnCompletionListener { finishOnce() }
@@ -244,6 +250,16 @@ private fun IntroVideoScreen(onFinished: () -> Unit) {
             modifier = Modifier.align(Alignment.TopStart).padding(16.dp)
         ) {
             Text("تخطي", color = Color.White, fontWeight = FontWeight.Bold)
+        }
+        InteractiveTextButton(
+            onClick = {
+                musicMuted = !musicMuted
+                val volume = if (musicMuted) 0f else 0.32f
+                mediaPlayer?.setVolume(volume, volume)
+            },
+            modifier = Modifier.align(Alignment.TopEnd).padding(16.dp)
+        ) {
+            Text(if (musicMuted) "تشغيل الموسيقا" else "كتم الموسيقا", color = Color.White, fontWeight = FontWeight.Bold)
         }
         Column(
             modifier = Modifier.align(Alignment.BottomCenter).padding(horizontal = 24.dp, vertical = 36.dp),
@@ -912,7 +928,7 @@ private fun UniversityScreen(
                     courseCount = pc.size,
                     gradedCount = graded.size,
                     passedCount = passed,
-                    average = graded.takeIf { it.isNotEmpty() }?.average(),
+                    average = GradeCalculator.average(pc, p),
                     onClick = { onProgram(p.id) }
                 )
             }
@@ -989,10 +1005,11 @@ private fun ProgramScreen(
     if (program == null) return
     val context = LocalContext.current
     val years = courses.map { it.academicYear }.distinct().sorted()
-    val allGrades = courses.mapNotNull { GradeCalculator.calculate(it, program).finalGrade }
+    val overallAverage = GradeCalculator.average(courses, program)
     val passed = courses.count { GradeCalculator.calculate(it, program).isPassed == true }
     val failed = courses.count { GradeCalculator.calculate(it, program).isPassed == false }
     val progress = if (courses.isEmpty()) 0f else (passed.toFloat() / courses.size.toFloat()).coerceIn(0f, 1f)
+    val standing = StudentStandingCalculator.calculate(universityName, program, courses)
     var programFilter by remember(program.id) { mutableStateOf(CourseFilter.UNGRADED) }
     val statusCourses = courses.filter { c ->
         val result = GradeCalculator.calculate(c, program)
@@ -1000,7 +1017,7 @@ private fun ProgramScreen(
             CourseFilter.ALL -> true
             CourseFilter.PASSED -> result.isPassed == true
             CourseFilter.FAILED -> result.isPassed == false
-            CourseFilter.UNGRADED -> result.finalGrade == null
+            CourseFilter.UNGRADED -> result.isPassed == null
         }
     }
 
@@ -1017,21 +1034,35 @@ private fun ProgramScreen(
                     Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
                         Text("الملخص الأكاديمي", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            MetricBox("المعدل", allGrades.takeIf { it.isNotEmpty() }?.average()?.let(::formatGrade) ?: "—", Modifier.weight(1f))
+                            MetricBox("المعدل", overallAverage?.let(::formatGrade) ?: "—", Modifier.weight(1f))
                             MetricBox("ناجح", passed.toString(), Modifier.weight(1f))
                             MetricBox("راسب", failed.toString(), Modifier.weight(1f))
                             MetricBox("متبقي", (courses.size - passed).toString(), Modifier.weight(1f))
                         }
                         AcademicProgressBar(passed = passed, total = courses.size)
+                        Surface(
+                            color = if (standing.isGraduated) Color(0xFFDDF7E6) else MaterialTheme.colorScheme.primaryContainer,
+                            shape = MaterialTheme.shapes.medium,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Text(
+                                    "حالة الطالب: ${standing.title}",
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (standing.isGraduated) Color(0xFF146C38) else MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                                Text(standing.details, style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
                         HorizontalDivider()
                         Text("حد النجاح: ${program.passingGrade.toInt()}/100", fontWeight = FontWeight.SemiBold)
                         Text(
                             when (program.gradingScheme) {
                                 GradeCalculator.SVU_WEIGHTED ->
-                                    "طريقة الحساب: ${program.assignmentWeight.toInt()}% وظيفة + ${program.examWeight.toInt()}% امتحان."
+                                    "طريقة الحساب: ${program.assignmentWeight.toInt()}% وظيفة + ${program.examWeight.toInt()}% امتحان. كل كسر يُجبر إلى العدد الصحيح الأعلى."
                                 GradeCalculator.ANDALUS_SPLIT_PRACTICAL_THEORY ->
-                                    "طريقة الحساب: أعمال الطالب + الامتحان العملي + النظري، والمجموع النهائي بين 0 و100."
-                                else -> "طريقة الحساب: العملي + النظري، والمجموع النهائي بين 0 و100."
+                                    "طريقة الحساب: أعمال الطالب + الامتحان العملي + النظري، والمجموع النهائي بين 0 و100، وكل كسر يُجبر للأعلى."
+                                else -> "طريقة الحساب: العملي + النظري، والمجموع النهائي بين 0 و100، وكل كسر يُجبر للأعلى."
                             },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -1047,7 +1078,7 @@ private fun ProgramScreen(
                             },
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("طباعة أو حفظ تقرير PDF", fontWeight = FontWeight.Bold)
+                            Text("تصدير تقرير PDF لهذا الفرع", fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -1068,6 +1099,13 @@ private fun ProgramScreen(
                     )
                 }
             }
+            if (GradeCalculator.maximumAssistance(program) > 0) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    AcademicNoticeCard(
+                        "درجات المساعدة: يمنح هذا البرنامج تلقائيًا درجة أو درجتين كحد أقصى فقط إذا أوصلتا النتيجة إلى حد النجاح. تظهر المساعدة في التطبيق وتقرير PDF."
+                    )
+                }
+            }
             if (universityName.contains("دمشق")) {
                 item(span = { GridItemSpan(maxLineSpan) }) {
                     AcademicNoticeCard(
@@ -1081,13 +1119,12 @@ private fun ProgramScreen(
             }
             items(years, key = { it }) { year ->
                 val yearCourses = courses.filter { it.academicYear == year }
-                val yearGrades = yearCourses.mapNotNull { GradeCalculator.calculate(it, program).finalGrade }
                 val yearPassed = yearCourses.count { GradeCalculator.calculate(it, program).isPassed == true }
                 AcademicYearCard(
                     year = year,
                     courseCount = yearCourses.size,
                     passedCount = yearPassed,
-                    average = yearGrades.takeIf { it.isNotEmpty() }?.average(),
+                    average = GradeCalculator.average(yearCourses, program),
                     onClick = { onYear(year) }
                 )
             }
@@ -1126,8 +1163,18 @@ private fun ProgramScreen(
                                 )
                             }
                             Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                GradeStatus(result.isPassed)
-                                Text(result.finalGrade?.let { formatGrade(it) } ?: "—", style = MaterialTheme.typography.labelMedium)
+                                GradeStatus(result.isPassed, result.assistancePoints, result.passedWithoutGrade)
+                                Text(
+                                    when {
+                                        result.passedWithoutGrade -> "دون علامة"
+                                        result.finalGrade != null -> formatGrade(result.finalGrade)
+                                        else -> "—"
+                                    },
+                                    style = MaterialTheme.typography.labelMedium
+                                )
+                                if (c.creditHours != null) {
+                                    Text("${c.creditHours} ساعات", style = MaterialTheme.typography.labelSmall)
+                                }
                             }
                         }
                     }
@@ -1190,7 +1237,6 @@ private fun YearScreen(
     onSemester: (Int) -> Unit
 ) {
     if (program == null) return
-    val grades = courses.mapNotNull { GradeCalculator.calculate(it, program).finalGrade }
     val passed = courses.count { GradeCalculator.calculate(it, program).isPassed == true }
     val failed = courses.count { GradeCalculator.calculate(it, program).isPassed == false }
 
@@ -1215,7 +1261,7 @@ private fun YearScreen(
                         Text(program.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                         Text(englishYear(year), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.primary)
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            MetricBox("المعدل", grades.takeIf { it.isNotEmpty() }?.average()?.let(::formatGrade) ?: "—", Modifier.weight(1f))
+                            MetricBox("المعدل", GradeCalculator.average(courses, program)?.let(::formatGrade) ?: "—", Modifier.weight(1f))
                             MetricBox("ناجح", passed.toString(), Modifier.weight(1f))
                             MetricBox("راسب", failed.toString(), Modifier.weight(1f))
                             MetricBox("متبقي", (courses.size - passed).toString(), Modifier.weight(1f))
@@ -1301,7 +1347,7 @@ private fun SemesterScreen(program: ProgramEntity?, year: Int, semester: Int, co
             CourseFilter.ALL -> true
             CourseFilter.PASSED -> result.isPassed == true
             CourseFilter.FAILED -> result.isPassed == false
-            CourseFilter.UNGRADED -> result.finalGrade == null
+            CourseFilter.UNGRADED -> result.isPassed == null
         }
         matchesSearch && matchesFilter
     }
@@ -1384,7 +1430,7 @@ private fun SemesterScreen(program: ProgramEntity?, year: Int, semester: Int, co
                                 )
                             )
                             Box(Modifier.align(Alignment.TopEnd).padding(7.dp)) {
-                                GradeStatus(result.isPassed)
+                                GradeStatus(result.isPassed, result.assistancePoints, result.passedWithoutGrade)
                             }
                         }
                         Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -1404,12 +1450,32 @@ private fun SemesterScreen(program: ProgramEntity?, year: Int, semester: Int, co
                                     overflow = TextOverflow.Ellipsis
                                 )
                             }
+                            if (c.creditHours != null) {
+                                Text(
+                                    "عدد الساعات: ${c.creditHours}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
                             HorizontalDivider()
                             Text(
-                                result.finalGrade?.let { "الدرجة: ${formatGrade(it)}/100" } ?: "لم تُدخل الدرجة بعد",
+                                when {
+                                    result.passedWithoutGrade -> "ناجح بالترفيع دون علامة"
+                                    result.finalGrade != null -> "الدرجة: ${formatGrade(result.finalGrade)}/100"
+                                    else -> "لم تُدخل الدرجة بعد"
+                                },
                                 fontWeight = FontWeight.SemiBold,
                                 style = MaterialTheme.typography.labelMedium
                             )
+                            if (result.assistancePoints > 0) {
+                                Text(
+                                    "تتضمن مساعدة +${result.assistancePoints}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF146C38)
+                                )
+                            }
                         }
                     }
                 }
@@ -1447,14 +1513,38 @@ private fun CourseScreen(
                         Text(course.name, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                         if (course.code.isNotBlank()) Text("${courseIdentifierLabel(program)}: ${course.code}")
                         if (course.language.isNotBlank()) Text("اللغة: ${course.language}")
+                        if (course.creditHours != null) Text("عدد الساعات: ${course.creditHours} ساعات", fontWeight = FontWeight.SemiBold)
                         Text("السنة ${arabicOrdinal(course.academicYear)} • الفصل ${if (course.semester == 1) "الأول" else "الثاني"}")
                         HorizontalDivider()
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
                                 Text("النتيجة النهائية", style = MaterialTheme.typography.labelMedium)
-                                Text(result.finalGrade?.let { "${formatGrade(it)}/100" } ?: "—", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                Text(
+                                    when {
+                                        result.passedWithoutGrade -> "ناجح دون علامة"
+                                        result.finalGrade != null -> "${formatGrade(result.finalGrade)}/100"
+                                        else -> "—"
+                                    },
+                                    style = MaterialTheme.typography.headlineMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (result.passedWithoutGrade) Color(0xFF146C38) else MaterialTheme.colorScheme.primary
+                                )
                             }
-                            GradeStatus(result.isPassed)
+                            GradeStatus(result.isPassed, result.assistancePoints, result.passedWithoutGrade)
+                        }
+                        if (result.rawGrade != null && result.roundedGrade != null && result.rawGrade != result.roundedGrade) {
+                            Text(
+                                "المحصلة قبل الجبر: ${formatGrade(result.rawGrade)} • بعد جبر الكسر: ${formatGrade(result.roundedGrade)}",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                        if (result.assistancePoints > 0) {
+                            Text(
+                                "تم منح مساعدة +${result.assistancePoints} للوصول إلى حد النجاح.",
+                                color = Color(0xFF146C38),
+                                fontWeight = FontWeight.Bold,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
                         }
                         Text("حد النجاح: ${program.passingGrade.toInt()}/100", style = MaterialTheme.typography.bodySmall)
                     }
@@ -1586,7 +1676,7 @@ private fun StatisticsScreen(
                     gradedCount = grades.size,
                     passedCount = passed,
                     failedCount = failed,
-                    average = grades.takeIf { it.isNotEmpty() }?.average(),
+                    average = GradeCalculator.average(pc, p),
                     onClick = { onProgram(p.id) }
                 )
             }
@@ -1742,8 +1832,14 @@ private fun MetricBox(label: String, value: String, modifier: Modifier = Modifie
 }
 
 @Composable
-private fun GradeStatus(status: Boolean?) {
-    val text = when (status) { true -> "ناجح"; false -> "راسب"; null -> "غير مُقيّم" }
+private fun GradeStatus(status: Boolean?, assistancePoints: Int = 0, passedWithoutGrade: Boolean = false) {
+    val text = when {
+        status == true && passedWithoutGrade -> "ناجح دون علامة"
+        status == true && assistancePoints > 0 -> "ناجح • مساعدة +$assistancePoints"
+        status == true -> "ناجح"
+        status == false -> "راسب"
+        else -> "غير مُقيّم"
+    }
     val container = when (status) {
         true -> Color(0xFFDDF7E6)
         false -> Color(0xFFFFE3E1)

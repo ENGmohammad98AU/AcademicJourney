@@ -14,7 +14,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         CourseEntity::class,
         HighSchoolGradeEntity::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 abstract class AcademicDatabase : RoomDatabase() {
@@ -130,13 +130,91 @@ abstract class AcademicDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `CourseEntity` ADD COLUMN `creditHours` INTEGER")
+                db.execSQL(
+                    "ALTER TABLE `CourseEntity` ADD COLUMN `passedWithoutGrade` INTEGER NOT NULL DEFAULT 0"
+                )
+
+                // Normalize two legacy identifiers before applying the supplied curriculum.
+                listOf(
+                    "Eng1" to "L1",
+                    "Eng2" to "L2",
+                    "Eng3" to "L3",
+                    "Eng4" to "L4",
+                    "Eng5" to "L5",
+                    "BHR6011" to "BHR611"
+                ).forEach { (oldCode, newCode) ->
+                    db.execSQL(
+                        """
+                        UPDATE `CourseEntity`
+                        SET `code` = ?
+                        WHERE `code` = ?
+                          AND `programId` IN (
+                              SELECT `id` FROM `ProgramEntity`
+                              WHERE `name` LIKE '%إدارة الموارد البشرية%'
+                          )
+                        """.trimIndent(),
+                        arrayOf(newCode, oldCode)
+                    )
+                }
+
+                HumanResourcesCurriculum.creditHoursByCode.forEach { (code, hours) ->
+                    db.execSQL(
+                        """
+                        UPDATE `CourseEntity`
+                        SET `creditHours` = ?
+                        WHERE `code` = ?
+                          AND `programId` IN (
+                              SELECT `id` FROM `ProgramEntity`
+                              WHERE `name` LIKE '%إدارة الموارد البشرية%'
+                          )
+                        """.trimIndent(),
+                        arrayOf(hours, code)
+                    )
+                }
+
+                db.execSQL(
+                    """
+                    UPDATE `CourseEntity`
+                    SET `name` = 'مشروع التخرج'
+                    WHERE `code` = 'PHR601'
+                      AND `programId` IN (
+                          SELECT `id` FROM `ProgramEntity`
+                          WHERE `name` LIKE '%إدارة الموارد البشرية%'
+                      )
+                    """.trimIndent()
+                )
+
+                HumanResourcesCurriculum.passedWithoutGradeByCode.forEach { (code, note) ->
+                    db.execSQL(
+                        """
+                        UPDATE `CourseEntity`
+                        SET `passedWithoutGrade` = 1,
+                            `notes` = CASE
+                                WHEN TRIM(`notes`) = '' THEN ?
+                                ELSE `notes` || CHAR(10) || ?
+                            END
+                        WHERE `code` = ?
+                          AND `programId` IN (
+                              SELECT `id` FROM `ProgramEntity`
+                              WHERE `name` LIKE '%إدارة الموارد البشرية%'
+                          )
+                        """.trimIndent(),
+                        arrayOf(note, note, code)
+                    )
+                }
+            }
+        }
+
         fun get(context: Context): AcademicDatabase = INSTANCE ?: synchronized(this) {
             INSTANCE ?: Room.databaseBuilder(
                 context.applicationContext,
                 AcademicDatabase::class.java,
                 "academic_journey.db"
             )
-                .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                 .build()
                 .also { INSTANCE = it }
         }
