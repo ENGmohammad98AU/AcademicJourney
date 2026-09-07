@@ -85,6 +85,28 @@ class CalculatorTests {
     }
 
     @Test
+    fun practicalGradeCanBeStoredWithoutTheoryAndRemainsPending() {
+        val practicalTheory = program(GradeCalculator.PRACTICAL_THEORY, 0.0, 0.0, 50.0)
+        val partial = course(practicalGrade = 35.0, theoryGrade = null)
+
+        assertNull(GradeCalculator.validatePartialPracticalTheory(35.0, null))
+        assertNull(GradeCalculator.calculate(partial, practicalTheory).finalGrade)
+        assertNull(GradeCalculator.calculate(partial, practicalTheory).isPassed)
+    }
+
+    @Test
+    fun partialComponentsStillRejectAnImpossibleTotal() {
+        assertEquals(
+            "يجب أن يكون مجموع الدرجات المدخلة بين 0 و100.",
+            GradeCalculator.validatePartialPracticalTheory(75.0, 30.0)
+        )
+        assertEquals(
+            "يجب أن يكون مجموع الدرجات المدخلة بين 0 و100.",
+            GradeCalculator.validatePartialAndalus(60.0, 45.0, null)
+        )
+    }
+
+    @Test
     fun andalusGradeAddsStudentWorkPracticalExamAndTheoryWithoutExceeding100() {
         val andalus = program(
             GradeCalculator.ANDALUS_SPLIT_PRACTICAL_THEORY,
