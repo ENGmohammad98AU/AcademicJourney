@@ -14,7 +14,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         CourseEntity::class,
         HighSchoolGradeEntity::class
     ],
-    version = 6,
+    version = 7,
     exportSchema = false
 )
 abstract class AcademicDatabase : RoomDatabase() {
@@ -208,13 +208,42 @@ abstract class AcademicDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Course numbers are curriculum-owned. Updating the existing rows in place keeps
+                // their primary keys, grades and notes intact while replacing any missing or
+                // manually entered number with the official 2025–2026 value.
+                DiplomacyCurriculum.courseNumberByName.forEach { (courseName, courseNumber) ->
+                    db.execSQL(
+                        """
+                        UPDATE `CourseEntity`
+                        SET `code` = ?
+                        WHERE `name` = ?
+                          AND `programId` IN (
+                              SELECT `id` FROM `ProgramEntity`
+                              WHERE `name` LIKE '%الدراسات الدولية%'
+                                AND `name` LIKE '%الدبلوماسية%'
+                          )
+                        """.trimIndent(),
+                        arrayOf(courseNumber, courseName)
+                    )
+                }
+            }
+        }
+
         fun get(context: Context): AcademicDatabase = INSTANCE ?: synchronized(this) {
             INSTANCE ?: Room.databaseBuilder(
                 context.applicationContext,
                 AcademicDatabase::class.java,
                 "academic_journey.db"
             )
-                .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                .addMigrations(
+                    MIGRATION_2_3,
+                    MIGRATION_3_4,
+                    MIGRATION_4_5,
+                    MIGRATION_5_6,
+                    MIGRATION_6_7
+                )
                 .build()
                 .also { INSTANCE = it }
         }

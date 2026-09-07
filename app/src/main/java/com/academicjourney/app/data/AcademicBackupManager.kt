@@ -13,7 +13,7 @@ import java.util.TimeZone
 /**
  * Portable, user-controlled backup of editable academic data.
  *
- * Curriculum-owned fields (IDs, credit hours and passed-without-grade flags) are intentionally
+ * Curriculum-owned fields (IDs, course codes/numbers, credit hours and passed-without-grade flags) are intentionally
  * not restored. This lets a backup from an older release be applied safely over a newer
  * curriculum without undoing Room migrations or future corrections.
  */
@@ -158,14 +158,13 @@ object AcademicBackupManager {
                 continue
             }
 
-            val code = item.optString("code", current.code).also {
+            item.optString("code", current.code).also {
                 require(it.length <= 120) { "رقم/رمز مقرر أطول من الحد المسموح." }
             }
             val notes = item.optString("notes", current.notes).also {
                 require(it.length <= 50_000) { "ملاحظة مقرر أطول من الحد المسموح." }
             }
             restoredCourses[current.id] = current.copy(
-                code = code,
                 practicalGrade = item.nullableGrade("practicalGrade"),
                 theoryGrade = item.nullableGrade("theoryGrade"),
                 assignmentGrade = item.nullableGrade("assignmentGrade"),
