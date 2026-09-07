@@ -102,6 +102,15 @@ object GradeCalculator {
         else -> null
     }
 
+    /** Validates whichever components are currently available without requiring both fields. */
+    fun validatePartialPracticalTheory(practical: Double?, theory: Double?): String? = when {
+        listOfNotNull(practical, theory).any { !valid(it) } ->
+            "يجب أن تكون كل درجة بين 0 و100."
+        listOfNotNull(practical, theory).sum() > 100 ->
+            "يجب أن يكون مجموع الدرجات المدخلة بين 0 و100."
+        else -> null
+    }
+
     fun validateAndalus(studentWork: Double, practicalExam: Double, theory: Double): String? = when {
         !valid(studentWork) || !valid(practicalExam) || !valid(theory) ->
             "يجب أن تكون كل درجة بين 0 و100."
@@ -110,8 +119,28 @@ object GradeCalculator {
         else -> null
     }
 
+    /** Supports saving student work, practical exam and theory independently. */
+    fun validatePartialAndalus(
+        studentWork: Double?,
+        practicalExam: Double?,
+        theory: Double?
+    ): String? = when {
+        listOfNotNull(studentWork, practicalExam, theory).any { !valid(it) } ->
+            "يجب أن تكون كل درجة بين 0 و100."
+        listOfNotNull(studentWork, practicalExam, theory).sum() > 100 ->
+            "يجب أن يكون مجموع الدرجات المدخلة بين 0 و100."
+        else -> null
+    }
+
     fun validateSvu(assignment: Double, exam: Double): String? =
         if (!valid(assignment) || !valid(exam)) "يجب أن تكون كل درجة بين 0 و100." else null
+
+    fun validatePartialSvu(assignment: Double?, exam: Double?): String? =
+        if (listOfNotNull(assignment, exam).any { !valid(it) }) {
+            "يجب أن تكون كل درجة بين 0 و100."
+        } else {
+            null
+        }
 
     /** Uses credit-hour weighting when every graded course has supplied credit hours. */
     fun average(courses: List<CourseEntity>, program: ProgramEntity): Double? {
