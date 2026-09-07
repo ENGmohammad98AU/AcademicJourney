@@ -3,14 +3,13 @@ package com.academicjourney.app.ui
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Color
 import android.net.Uri
-import android.os.CancellationSignal
-import android.print.PageRange
 import android.print.PrintAttributes
-import android.print.PrintDocumentAdapter
-import android.print.PrintDocumentInfo
 import android.print.PrintManager
+import android.print.pdf.PrintedPdfDocument
 import android.util.Base64
+import android.view.View
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import com.academicjourney.app.BuildConfig
@@ -25,6 +24,7 @@ import java.io.ByteArrayOutputStream
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.ceil
 
 object ReportPrinter {
     private val retainedPrintViews = ArrayDeque<WebView>()
@@ -54,7 +54,7 @@ object ReportPrinter {
     ) {
         runCatching { programDocument(context, universityName, program, courses) }.fold(
             onSuccess = { html ->
-                exportHtml(context, uri, "تقرير-${program.name}", html, landscape = true, onResult = onResult)
+                exportHtml(context, uri, html, landscape = true, onResult = onResult)
             },
             onFailure = { onResult("تعذر تجهيز تقرير PDF: ${it.message ?: "خطأ غير معروف"}") }
         )
@@ -167,7 +167,7 @@ object ReportPrinter {
     ) {
         runCatching { highSchoolDocument(context, branchTitle, grades) }.fold(
             onSuccess = { html ->
-                exportHtml(context, uri, "تقرير-$branchTitle", html, landscape = false, onResult = onResult)
+                exportHtml(context, uri, html, landscape = false, onResult = onResult)
             },
             onFailure = { onResult("تعذر تجهيز تقرير PDF: ${it.message ?: "خطأ غير معروف"}") }
         )
@@ -240,7 +240,6 @@ object ReportPrinter {
     private fun exportHtml(
         context: Context,
         uri: Uri,
-        jobName: String,
         html: String,
         landscape: Boolean,
         onResult: (String) -> Unit
@@ -249,76 +248,62 @@ object ReportPrinter {
             context = context,
             html = html,
             onReady = { view ->
-                val adapter = view.createPrintDocumentAdapter(jobName)
-                val attributes = printAttributes(landscape)
-                val cancellation = CancellationSignal()
-                var descriptor: android.os.ParcelFileDescriptor? = null
-                var completed = false
-
-                fun complete(message: String) {
-                    if (completed) return
-                    completed = true
-                    runCatching { descriptor?.close() }
-                    runCatching { adapter.onFinish() }
-                    releaseWebView(view)
-                    onResult(message)
-                }
-
                 runCatching {
-                    adapter.onStart()
-                    adapter.onLayout(
-                        attributes,
-                        attributes,
-                        cancellation,
-                        object : PrintDocumentAdapter.LayoutResultCallback() {
-                            override fun onLayoutFinished(info: PrintDocumentInfo, changed: Boolean) {
-                                descriptor = runCatching {
-                                    context.contentResolver.openFileDescriptor(uri, "w")
-                                }.getOrElse {
-                                    complete("تعذر فتح الملف المحدد: ${it.message ?: "خطأ غير معروف"}")
-                                    return
-                                }
-                                val output = descriptor
-                                if (output == null) {
-                                    complete("تعذر فتح الملف المحدد للكتابة.")
-                                    return
-                                }
-                                adapter.onWrite(
-                                    arrayOf(PageRange.ALL_PAGES),
-                                    output,
-                                    cancellation,
-                                    object : PrintDocumentAdapter.WriteResultCallback() {
-                                        override fun onWriteFinished(pages: Array<out PageRange>) {
-                                            complete("تم تصدير تقرير PDF بنجاح.")
-                                        }
-
-                                        override fun onWriteFailed(error: CharSequence?) {
-                                            complete("تعذر تصدير PDF: ${error ?: "خطأ غير معروف"}")
-                                        }
-
-                                        override fun onWriteCancelled() {
-                                            complete("أُلغي تصدير تقرير PDF.")
-                                        }
-                                    }
-                                )
-                            }
-
-                            override fun onLayoutFailed(error: CharSequence?) {
-                                complete("تعذر تجهيز صفحات PDF: ${error ?: "خطأ غير معروف"}")
-                            }
-
-                            override fun onLayoutCancelled() {
-                                complete("أُلغي تجهيز تقرير PDF.")
-                            }
-                        },
-                        null
+                    writeWebViewToPdf(
+                        context = context,
+                        uri = uri,
+                        view = view,
+                        attributes = printAttributes(landscape)
                     )
-                }.onFailure {
-                    complete("تعذر تصدير PDF: ${it.message ?: "خطأ غير معروف"}")
-                }
+                }.fold(
+                    onSuccess = { onResult("تم تصدير تقرير PDF بنجاح.") },
+                    onFailure = { onResult("تعذر تصدير PDF: ${it.message ?: "خطأ غير معروف"}") }
+                )
+                releaseWebView(view)
             },
             onFailure = { onResult("تعذر تجهيز تقرير PDF: ${it.message ?: "خطأ غير معروف"}") }
         )
+    }
+
+    private fun writeWebViewToPdf(
+        context: Context,
+        uri: Uri,
+        view: WebView,
+        attributes: PrintAttributes
+    ) {
+        val document = PrintedPdfDocument(context, attributes)
+        try {
+            val contentRect = document.pageContentRect
+            val pageWidth = contentRect.width().coerceAtLeast(1)
+            val pageHeight = contentRect.height().coerceAtLeast(1)
+            view.measure(
+                View.MeasureSpec.makeMeasureSpec(pageWidth, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+            )
+            val contentHeight = view.measuredHeight.coerceAtLeast(pageHeight)
+            view.layout(0, 0, pageWidth, contentHeight)
+            val pageCount = ceil(contentHeight.toDouble() / pageHeight).toInt().coerceAtLeast(1)
+
+            repeat(pageCount) { pageIndex ->
+                val page = document.startPage(pageIndex)
+                page.canvas.drawColor(Color.WHITE)
+                page.canvas.save()
+                page.canvas.translate(
+                    contentRect.left.toFloat(),
+                    (contentRect.top - (pageIndex * pageHeight)).toFloat()
+                )
+                view.draw(page.canvas)
+                page.canvas.restore()
+                document.finishPage(page)
+            }
+
+            val output = checkNotNull(context.contentResolver.openOutputStream(uri, "wt")) {
+                "تعذر فتح الملف المحدد للكتابة."
+            }
+            output.use(document::writeTo)
+        } finally {
+            document.close()
+        }
     }
 
     private fun loadHtml(
