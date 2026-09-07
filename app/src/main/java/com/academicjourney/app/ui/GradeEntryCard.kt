@@ -61,35 +61,38 @@ fun GradeEntryCard(course: CourseEntity, program: ProgramEntity, onSave: (Course
     var second by remember(course.id, existingSecond) { mutableStateOf(existingSecond?.cleanText().orEmpty()) }
     var third by remember(course.id, existingThird) { mutableStateOf(existingThird?.cleanText().orEmpty()) }
     var error by remember(course.id) { mutableStateOf<String?>(null) }
-    var saved by remember(course.id, existingFirst, existingSecond, existingThird) { mutableStateOf(false) }
+    var saved by remember(course.id) { mutableStateOf(false) }
     var showClearDialog by remember(course.id) { mutableStateOf(false) }
 
     val firstNumber = first.toDoubleOrNull()
     val secondNumber = second.toDoubleOrNull()
     val thirdNumber = third.toDoubleOrNull()
-    val validation = when {
-        andalus && firstNumber != null && secondNumber != null && thirdNumber != null ->
-            GradeCalculator.validateAndalus(firstNumber, secondNumber, thirdNumber)
-        svu && firstNumber != null && secondNumber != null ->
-            GradeCalculator.validateSvu(firstNumber, secondNumber)
-        !svu && !andalus && firstNumber != null && secondNumber != null ->
-            GradeCalculator.validatePracticalTheory(firstNumber, secondNumber)
-        else -> null
+    val hasInvalidField = gradeFieldError(first) != null ||
+        gradeFieldError(second) != null ||
+        (andalus && gradeFieldError(third) != null)
+    val hasAnyInput = first.isNotBlank() || second.isNotBlank() || (andalus && third.isNotBlank())
+    val entryComplete = when {
+        andalus -> firstNumber != null && secondNumber != null && thirdNumber != null
+        else -> firstNumber != null && secondNumber != null
     }
-    val previewCourse = if (validation == null) {
+    val validation = if (hasInvalidField) null else when {
+        andalus -> GradeCalculator.validatePartialAndalus(firstNumber, secondNumber, thirdNumber)
+        svu -> GradeCalculator.validatePartialSvu(firstNumber, secondNumber)
+        else -> GradeCalculator.validatePartialPracticalTheory(firstNumber, secondNumber)
+    }
+    val previewCourse = if (validation == null && entryComplete) {
         when {
-            andalus && firstNumber != null && secondNumber != null && thirdNumber != null ->
+            andalus ->
                 course.copy(
                     studentWorkGrade = firstNumber,
                     practicalExamGrade = secondNumber,
-                    practicalGrade = firstNumber + secondNumber,
+                    practicalGrade = requireNotNull(firstNumber) + requireNotNull(secondNumber),
                     theoryGrade = thirdNumber
                 )
-            svu && firstNumber != null && secondNumber != null ->
+            svu ->
                 course.copy(assignmentGrade = firstNumber, examGrade = secondNumber)
-            !svu && firstNumber != null && secondNumber != null ->
+            else ->
                 course.copy(practicalGrade = firstNumber, theoryGrade = secondNumber)
-            else -> null
         }
     } else null
     val preview = previewCourse?.let { GradeCalculator.calculate(it, program) }
@@ -101,9 +104,9 @@ fun GradeEntryCard(course: CourseEntity, program: ProgramEntity, onSave: (Course
             Text("إدخال الدرجات", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             Text(
                 when {
-                    andalus -> "أدخل أعمال الطالب والامتحان العملي والنظري. يجب ألا يتجاوز مجموعها النهائي 100."
-                    svu -> "أدخل درجة الوظيفة ودرجة الامتحان، وسيحسب التطبيق النتيجة حسب وزن البرنامج."
-                    else -> "أدخل درجتي العملي والنظري، وسيحسب التطبيق المجموع النهائي تلقائيًا."
+                    andalus -> "يمكن حفظ أعمال الطالب أو الامتحان العملي أو النظري كلٌّ على حدة، ثم إكمال البقية لاحقًا."
+                    svu -> "يمكن حفظ درجة الوظيفة أو الامتحان منفردة، وتظهر النتيجة بعد اكتمال الدرجتين."
+                    else -> "يمكن حفظ درجة العملي دون النظري، ثم العودة لاحقًا لإدخال النظري وإظهار النتيجة النهائية."
                 },
                 style = MaterialTheme.typography.bodyMedium
             )
@@ -218,47 +221,60 @@ fun GradeEntryCard(course: CourseEntity, program: ProgramEntity, onSave: (Course
             }
 
             error?.let { Text(it, color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold) }
-            if (saved) Text("تم حفظ الدرجة بنجاح.", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
+            if (saved) {
+                Text(
+                    if (entryComplete) {
+                        "تم حفظ الدرجات بنجاح."
+                    } else {
+                        "تم حفظ الدرجة المتاحة؛ يمكنك إكمال بقية الدرجات لاحقًا."
+                    },
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
 
             InteractiveButton(
                 onClick = {
-                    val firstValue = first.toDoubleOrNull()
-                    val secondValue = second.toDoubleOrNull()
-                    val thirdValue = third.toDoubleOrNull()
-                    val missingOrInvalid = gradeFieldError(first) != null ||
-                        gradeFieldError(second) != null ||
-                        (andalus && gradeFieldError(third) != null) ||
-                        firstValue == null || secondValue == null || (andalus && thirdValue == null)
-
-                    if (missingOrInvalid) {
+                    if (hasInvalidField) {
                         error = "يجب أن تكون كل درجة بين 0 و100."
+                    } else if (!hasAnyInput) {
+                        error = "أدخل درجة واحدة على الأقل، أو استخدم زر مسح الدرجات المحفوظة."
+                    } else if (validation != null) {
+                        error = validation
                     } else {
-                        val x = requireNotNull(firstValue)
-                        val y = requireNotNull(secondValue)
-                        error = when {
-                            andalus -> GradeCalculator.validateAndalus(x, y, requireNotNull(thirdValue))
-                            svu -> GradeCalculator.validateSvu(x, y)
-                            else -> GradeCalculator.validatePracticalTheory(x, y)
-                        }
-                        if (error == null) {
-                            onSave(
-                                when {
-                                    andalus -> course.copy(
-                                        studentWorkGrade = x,
-                                        practicalExamGrade = y,
-                                        practicalGrade = x + y,
-                                        theoryGrade = thirdValue
-                                    )
-                                    svu -> course.copy(assignmentGrade = x, examGrade = y)
-                                    else -> course.copy(practicalGrade = x, theoryGrade = y)
-                                }
-                            )
-                            saved = true
-                        }
+                        onSave(
+                            when {
+                                andalus -> course.copy(
+                                    studentWorkGrade = firstNumber,
+                                    practicalExamGrade = secondNumber,
+                                    practicalGrade = if (firstNumber != null && secondNumber != null) {
+                                        firstNumber + secondNumber
+                                    } else {
+                                        null
+                                    },
+                                    theoryGrade = thirdNumber
+                                )
+                                svu -> course.copy(
+                                    assignmentGrade = firstNumber,
+                                    examGrade = secondNumber
+                                )
+                                else -> course.copy(
+                                    practicalGrade = firstNumber,
+                                    theoryGrade = secondNumber
+                                )
+                            }
+                        )
+                        error = null
+                        saved = true
                     }
                 },
                 modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp)
-            ) { Text(if (hasExisting) "تحديث الدرجة" else "حفظ الدرجة", fontWeight = FontWeight.Bold) }
+            ) {
+                Text(
+                    if (hasExisting) "تحديث الدرجات المتاحة" else "حفظ الدرجات المتاحة",
+                    fontWeight = FontWeight.Bold
+                )
+            }
 
             if (hasExisting) {
                 InteractiveOutlinedButton(
@@ -306,7 +322,7 @@ private fun GradeInputField(value: String, onValueChange: (String) -> Unit, labe
         value = value,
         onValueChange = onValueChange,
         label = { Text(label) },
-        supportingText = { Text(fieldError ?: "يجب أن تكون الدرجة بين 0 و100.") },
+        supportingText = { Text(fieldError ?: "يمكن حفظ هذه الخانة منفردة؛ القيمة بين 0 و100.") },
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
         isError = fieldError != null,
         singleLine = true,

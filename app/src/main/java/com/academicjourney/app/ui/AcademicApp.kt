@@ -47,6 +47,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
@@ -54,11 +55,13 @@ import androidx.compose.ui.viewinterop.AndroidView
 import com.academicjourney.app.BuildConfig
 import com.academicjourney.app.R
 import com.academicjourney.app.data.CourseEntity
+import com.academicjourney.app.data.DiplomacyCurriculum
 import com.academicjourney.app.data.HighSchoolGradeEntity
 import com.academicjourney.app.data.HighSchoolSeedData
 import com.academicjourney.app.data.ProgramEntity
 import com.academicjourney.app.data.UniversityEntity
 import com.academicjourney.app.domain.GradeCalculator
+import com.academicjourney.app.domain.CourseSearch
 import com.academicjourney.app.domain.HighSchoolCalculator
 import com.academicjourney.app.domain.StudentStandingCalculator
 import kotlinx.coroutines.delay
@@ -214,9 +217,6 @@ fun AcademicApp(vm: AcademicViewModel) {
                     CourseScreen(
                         course = course,
                         program = program,
-                        universityName = program?.let { selectedProgram ->
-                            universities.firstOrNull { it.id == selectedProgram.universityId }?.name
-                        },
                         onBack = {
                             if (course != null) screen = Screen.Semester(course.programId, course.academicYear, course.semester)
                             else screen = Screen.Home
@@ -234,6 +234,7 @@ private fun IntroVideoScreen(onFinished: () -> Unit) {
     val context = LocalContext.current
     var finished by remember { mutableStateOf(false) }
     var mediaPlayer by remember { mutableStateOf<MediaPlayer?>(null) }
+    var videoView by remember { mutableStateOf<VideoView?>(null) }
     var musicMuted by rememberSaveable { mutableStateOf(false) }
     val finishOnce: () -> Unit = {
         if (!finished) {
@@ -243,14 +244,24 @@ private fun IntroVideoScreen(onFinished: () -> Unit) {
     }
 
     LaunchedEffect(Unit) {
-        delay(7_000)
+        // Completion normally closes the intro. This is only a safety timeout for damaged media.
+        delay(15_000)
         finishOnce()
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            videoView?.stopPlayback()
+            videoView = null
+            mediaPlayer = null
+        }
     }
 
     Box(Modifier.fillMaxSize().background(Color(0xFF101B2B))) {
         AndroidView(
             factory = { viewContext ->
                 VideoView(viewContext).apply {
+                    videoView = this
                     setVideoURI(Uri.parse("android.resource://${context.packageName}/${R.raw.app_intro}"))
                     setOnPreparedListener { player ->
                         mediaPlayer = player
@@ -630,6 +641,17 @@ private fun HighSchoolBranchScreen(
     val total = summary.totalGrade
     val maximum = summary.maximumGrade
     val excludedNames = grades.filterNot { it.includedInPercentage }.joinToString(" و") { it.subject }
+    var reportMessage by rememberSaveable(branch) { mutableStateOf<String?>(null) }
+    val exportReportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/pdf")
+    ) { uri ->
+        uri?.let {
+            reportMessage = "جارٍ إنشاء ملف PDF..."
+            ReportPrinter.exportHighSchoolReport(context, it, branchTitle, grades) { message ->
+                reportMessage = message
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -672,10 +694,31 @@ private fun HighSchoolBranchScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         InteractiveButton(
-                            onClick = { ReportPrinter.printHighSchoolReport(context, branchTitle, grades) },
+                            onClick = {
+                                exportReportLauncher.launch(reportPdfFileName(branchTitle))
+                            },
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("تصدير أو طباعة تقرير PDF", fontWeight = FontWeight.Bold)
+                            Text("تصدير التقرير PDF", fontWeight = FontWeight.Bold)
+                        }
+                        InteractiveOutlinedButton(
+                            onClick = {
+                                reportMessage = "جارٍ تجهيز نافذة الطباعة..."
+                                ReportPrinter.printHighSchoolReport(context, branchTitle, grades) { message ->
+                                    reportMessage = message
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("طباعة التقرير", fontWeight = FontWeight.Bold)
+                        }
+                        if (!reportMessage.isNullOrBlank()) {
+                            Text(
+                                reportMessage.orEmpty(),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.SemiBold
+                            )
                         }
                     }
                 }
@@ -843,7 +886,7 @@ private fun UniversitiesScreen(
 private fun SummaryCard(label: String, value: String, modifier: Modifier = Modifier) {
     ElevatedCard(modifier) {
         Column(Modifier.padding(vertical = 12.dp, horizontal = 5.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.primary)
+            NumericMetricValue(value)
             Text(label, style = MaterialTheme.typography.labelSmall)
         }
     }
@@ -1088,17 +1131,34 @@ private fun ProgramScreen(
     val overallAverage = GradeCalculator.average(courses, program)
     val passed = courses.count { GradeCalculator.calculate(it, program).isPassed == true }
     val failed = courses.count { GradeCalculator.calculate(it, program).isPassed == false }
-    val progress = if (courses.isEmpty()) 0f else (passed.toFloat() / courses.size.toFloat()).coerceIn(0f, 1f)
     val standing = StudentStandingCalculator.calculate(universityName, program, courses)
-    var programFilter by remember(program.id) { mutableStateOf(CourseFilter.UNGRADED) }
+    var programFilter by remember(program.id) { mutableStateOf(CourseFilter.ALL) }
+    var programSearch by remember(program.id) { mutableStateOf(TextFieldValue("")) }
+    var reportMessage by rememberSaveable(program.id) { mutableStateOf<String?>(null) }
+    val exportReportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/pdf")
+    ) { uri ->
+        uri?.let {
+            reportMessage = "جارٍ إنشاء ملف PDF..."
+            ReportPrinter.exportProgramReport(
+                context = context,
+                uri = it,
+                universityName = universityName,
+                program = program,
+                courses = courses
+            ) { message -> reportMessage = message }
+        }
+    }
     val statusCourses = courses.filter { c ->
         val result = GradeCalculator.calculate(c, program)
-        when (programFilter) {
+        val matchesSearch = CourseSearch.matches(c, programSearch.text)
+        val matchesFilter = when (programFilter) {
             CourseFilter.ALL -> true
             CourseFilter.PASSED -> result.isPassed == true
             CourseFilter.FAILED -> result.isPassed == false
             CourseFilter.UNGRADED -> result.isPassed == null
         }
+        matchesSearch && matchesFilter
     }
 
     Scaffold(topBar = { TopAppBar(title = { Text(program.name, fontWeight = FontWeight.Bold) }, navigationIcon = { BackButton(onBack) }) }) { padding ->
@@ -1149,16 +1209,33 @@ private fun ProgramScreen(
                         )
                         InteractiveButton(
                             onClick = {
+                                exportReportLauncher.launch(reportPdfFileName(program.name))
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("تصدير التقرير PDF", fontWeight = FontWeight.Bold)
+                        }
+                        InteractiveOutlinedButton(
+                            onClick = {
+                                reportMessage = "جارٍ تجهيز نافذة الطباعة..."
                                 ReportPrinter.printProgramReport(
                                     context = context,
                                     universityName = universityName,
                                     program = program,
                                     courses = courses
-                                )
+                                ) { message -> reportMessage = message }
                             },
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("تصدير أو طباعة PDF لهذا الفرع", fontWeight = FontWeight.Bold)
+                            Text("طباعة التقرير", fontWeight = FontWeight.Bold)
+                        }
+                        if (!reportMessage.isNullOrBlank()) {
+                            Text(
+                                reportMessage.orEmpty(),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.SemiBold
+                            )
                         }
                     }
                 }
@@ -1186,10 +1263,10 @@ private fun ProgramScreen(
                     )
                 }
             }
-            if (universityName.contains("دمشق")) {
+            if (DiplomacyCurriculum.isProgramme(program.name)) {
                 item(span = { GridItemSpan(maxLineSpan) }) {
                     AcademicNoticeCard(
-                        "جامعة دمشق: افتح أي مقرر لإضافة رقم المقرر أو تعديله، وسيظهر الرقم في البطاقة والبحث وتقرير PDF."
+                        "أرقام مقررات الدراسات الدولية والدبلوماسية (510–557) مثبتة تلقائيًا وفق ملف التسجيل 2025–2026، ولا تحتاج إلى إدخال يدوي."
                     )
                 }
             }
@@ -1213,6 +1290,16 @@ private fun ProgramScreen(
                 SectionHeader("المواد حسب الحالة", "اعرض المواد على مستوى البرنامج بالكامل دون الحاجة لفتح كل فصل")
             }
             item(span = { GridItemSpan(maxLineSpan) }) {
+                OutlinedTextField(
+                    value = programSearch,
+                    onValueChange = { programSearch = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("استعلام عن المادة بالاسم أو الرقم أو الرمز") },
+                    supportingText = { Text("يشمل البحث جميع سنوات البرنامج وفصوله.") },
+                    singleLine = true
+                )
+            }
+            item(span = { GridItemSpan(maxLineSpan) }) {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         FilterChip(selected = programFilter == CourseFilter.UNGRADED, onClick = { programFilter = CourseFilter.UNGRADED }, label = { Text("غير مُقيّمة") })
@@ -1223,7 +1310,9 @@ private fun ProgramScreen(
                 }
             }
             if (statusCourses.isEmpty()) {
-                item(span = { GridItemSpan(maxLineSpan) }) { EmptyState("لا توجد مواد ضمن الحالة المحددة.") }
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    EmptyState("لا توجد مواد مطابقة لعبارة البحث والحالة المحددة.")
+                }
             } else {
                 items(
                     items = statusCourses,
@@ -1422,7 +1511,7 @@ private fun SemesterScreen(program: ProgramEntity?, year: Int, semester: Int, co
 
     val visibleCourses = courses.filter { c ->
         val result = GradeCalculator.calculate(c, program)
-        val matchesSearch = search.text.isBlank() || c.name.contains(search.text, ignoreCase = true) || c.code.contains(search.text, ignoreCase = true)
+        val matchesSearch = CourseSearch.matches(c, search.text)
         val matchesFilter = when (filter) {
             CourseFilter.ALL -> true
             CourseFilter.PASSED -> result.isPassed == true
@@ -1569,17 +1658,14 @@ private fun SemesterScreen(program: ProgramEntity?, year: Int, semester: Int, co
 private fun CourseScreen(
     course: CourseEntity?,
     program: ProgramEntity?,
-    universityName: String?,
     onBack: () -> Unit,
     onSave: (CourseEntity) -> Unit
 ) {
     if (course == null || program == null) return
     val result = GradeCalculator.calculate(course, program)
-    val isDamascus = universityName?.contains("دمشق") == true
+    val isDiplomacy = DiplomacyCurriculum.isProgramme(program.name)
     var notes by remember(course.id, course.notes) { mutableStateOf(course.notes) }
     var noteSaved by remember(course.id, course.notes) { mutableStateOf(false) }
-    var courseNumber by remember(course.id, course.code) { mutableStateOf(course.code) }
-    var courseNumberSaved by remember(course.id) { mutableStateOf(false) }
 
     Scaffold(topBar = { TopAppBar(title = { Text("تفاصيل المادة", fontWeight = FontWeight.Bold) }, navigationIcon = { BackButton(onBack) }) }) { padding ->
         LazyColumn(
@@ -1630,35 +1716,11 @@ private fun CourseScreen(
                     }
                 }
             }
-            if (isDamascus) {
+            if (isDiplomacy && course.code.isNotBlank()) {
                 item {
-                    ElevatedCard(Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Text("رقم المقرر", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                            Text(
-                                "يمكنك إضافة رقم مقرر جامعة دمشق أو تعديله، وسيظهر تحت اسم المادة وفي نتائج البحث.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            OutlinedTextField(
-                                value = courseNumber,
-                                onValueChange = { courseNumber = it; courseNumberSaved = false },
-                                modifier = Modifier.fillMaxWidth(),
-                                label = { Text("رقم المقرر") },
-                                singleLine = true
-                            )
-                            InteractiveButton(
-                                onClick = {
-                                    onSave(course.copy(code = courseNumber.trim()))
-                                    courseNumberSaved = true
-                                },
-                                modifier = Modifier.fillMaxWidth()
-                            ) { Text("حفظ رقم المقرر") }
-                            if (courseNumberSaved) {
-                                Text("تم حفظ رقم المقرر.", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
-                            }
-                        }
-                    }
+                    AcademicNoticeCard(
+                        "رقم المقرر ${course.code} مثبت تلقائيًا وفق منهاج الدراسات الدولية والدبلوماسية، ولا يحتاج إلى إدخال أو تعديل يدوي."
+                    )
                 }
             }
             item { GradeEntryCard(course, program, onSave) }
@@ -1904,10 +1966,27 @@ private fun SectionHeader(title: String, subtitle: String) {
 @Composable
 private fun MetricBox(label: String, value: String, modifier: Modifier = Modifier) {
     Surface(modifier = modifier, shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceVariant) {
-        Column(Modifier.padding(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        Column(Modifier.padding(vertical = 10.dp, horizontal = 3.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            NumericMetricValue(value)
             Text(label, style = MaterialTheme.typography.labelSmall)
         }
+    }
+}
+
+@Composable
+private fun NumericMetricValue(value: String) {
+    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+        Text(
+            text = value,
+            modifier = Modifier.fillMaxWidth(),
+            style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = "tnum"),
+            fontWeight = FontWeight.Black,
+            color = MaterialTheme.colorScheme.primary,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Clip
+        )
     }
 }
 
@@ -1949,6 +2028,15 @@ private fun EmptyState(message: String) {
 }
 
 private fun formatGrade(value: Double): String = String.format(Locale.US, "%.2f", value)
+private fun reportPdfFileName(label: String): String {
+    val safeLabel = label
+        .replace(Regex("[\\\\/:*?\"<>|]+"), "-")
+        .replace(Regex("\\s+"), "-")
+        .trim('-')
+        .take(72)
+    val stamp = SimpleDateFormat("yyyyMMdd-HHmm", Locale.US).format(Date())
+    return "AcademicJourney-$safeLabel-$stamp.pdf"
+}
 private fun courseIdentifierLabel(program: ProgramEntity): String =
     if (program.gradingScheme == GradeCalculator.SVU_WEIGHTED) "رمز المقرر" else "رقم المقرر"
 private fun arabicOrdinal(year: Int): String = when (year) { 1 -> "الأولى"; 2 -> "الثانية"; 3 -> "الثالثة"; 4 -> "الرابعة"; 5 -> "الخامسة"; else -> year.toString() }

@@ -3,7 +3,12 @@ package com.academicjourney.app.ui
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.net.Uri
+import android.os.CancellationSignal
+import android.print.PageRange
 import android.print.PrintAttributes
+import android.print.PrintDocumentAdapter
+import android.print.PrintDocumentInfo
 import android.print.PrintManager
 import android.util.Base64
 import android.webkit.WebView
@@ -22,12 +27,45 @@ import java.util.Date
 import java.util.Locale
 
 object ReportPrinter {
+    private val retainedPrintViews = ArrayDeque<WebView>()
+
     fun printProgramReport(
         context: Context,
         universityName: String,
         program: ProgramEntity,
-        courses: List<CourseEntity>
+        courses: List<CourseEntity>,
+        onResult: (String) -> Unit = {}
     ) {
+        runCatching { programDocument(context, universityName, program, courses) }.fold(
+            onSuccess = { html ->
+                printHtml(context, "تقرير-${program.name}", html, landscape = true, onResult = onResult)
+            },
+            onFailure = { onResult("تعذر تجهيز التقرير للطباعة: ${it.message ?: "خطأ غير معروف"}") }
+        )
+    }
+
+    fun exportProgramReport(
+        context: Context,
+        uri: Uri,
+        universityName: String,
+        program: ProgramEntity,
+        courses: List<CourseEntity>,
+        onResult: (String) -> Unit
+    ) {
+        runCatching { programDocument(context, universityName, program, courses) }.fold(
+            onSuccess = { html ->
+                exportHtml(context, uri, "تقرير-${program.name}", html, landscape = true, onResult = onResult)
+            },
+            onFailure = { onResult("تعذر تجهيز تقرير PDF: ${it.message ?: "خطأ غير معروف"}") }
+        )
+    }
+
+    private fun programDocument(
+        context: Context,
+        universityName: String,
+        program: ProgramEntity,
+        courses: List<CourseEntity>
+    ): String {
         val identifierLabel = if (program.gradingScheme == GradeCalculator.SVU_WEIGHTED) "رمز المقرر" else "رقم المقرر"
         val sorted = courses.sortedWith(compareBy<CourseEntity> { it.academicYear }.thenBy { it.semester }.thenBy { it.name })
         val results = sorted.map { GradeCalculator.calculate(it, program) }
@@ -49,6 +87,7 @@ object ReportPrinter {
               <td>${index + 1}</td><td class="name">${escape(course.name)}</td>
               <td class="code">${escape(course.code.ifBlank { "—" })}</td>
               <td>${course.academicYear} / ${course.semester}</td><td>${course.creditHours ?: "—"}</td>
+              <td>${gradeComponents(course, program)}</td>
               <td>${result.rawGrade?.let(::formatGrade) ?: "—"}</td>
               <td>${result.roundedGrade?.let(::formatGrade) ?: "—"}</td><td>$assistance</td>
               <td class="grade">${result.finalGrade?.let(::formatGrade) ?: "—"}</td><td>$status</td>
@@ -99,13 +138,46 @@ object ReportPrinter {
           <h2>المعدلات الفصلية والسنوية</h2><div class="note">$averageNotice</div>
           <table><thead><tr><th>السنة</th><th>الفصل الأول</th><th>الفصل الثاني</th><th>المعدل السنوي</th></tr></thead><tbody>$averageRows</tbody></table>
           <h2>المقررات والدرجات</h2>
-          <table class="courses"><thead><tr><th>#</th><th>اسم المقرر</th><th>$identifierLabel</th><th>السنة/الفصل</th><th>الساعات</th><th>قبل الجبر</th><th>بعد الجبر</th><th>المساعدة</th><th>النهائية</th><th>الحالة</th><th>الملاحظة</th></tr></thead>
+          <table class="courses"><thead><tr><th>#</th><th>اسم المقرر</th><th>$identifierLabel</th><th>السنة/الفصل</th><th>الساعات</th><th>الدرجات المدخلة</th><th>قبل الجبر</th><th>بعد الجبر</th><th>المساعدة</th><th>النهائية</th><th>الحالة</th><th>الملاحظة</th></tr></thead>
           <tbody>$courseRows</tbody></table>
         """.trimIndent()
-        printHtml(context, "تقرير-${program.name}", document(body, landscape = true), landscape = true)
+        return document(body, landscape = true)
     }
 
-    fun printHighSchoolReport(context: Context, branchTitle: String, grades: List<HighSchoolGradeEntity>) {
+    fun printHighSchoolReport(
+        context: Context,
+        branchTitle: String,
+        grades: List<HighSchoolGradeEntity>,
+        onResult: (String) -> Unit = {}
+    ) {
+        runCatching { highSchoolDocument(context, branchTitle, grades) }.fold(
+            onSuccess = { html ->
+                printHtml(context, "تقرير-$branchTitle", html, landscape = false, onResult = onResult)
+            },
+            onFailure = { onResult("تعذر تجهيز التقرير للطباعة: ${it.message ?: "خطأ غير معروف"}") }
+        )
+    }
+
+    fun exportHighSchoolReport(
+        context: Context,
+        uri: Uri,
+        branchTitle: String,
+        grades: List<HighSchoolGradeEntity>,
+        onResult: (String) -> Unit
+    ) {
+        runCatching { highSchoolDocument(context, branchTitle, grades) }.fold(
+            onSuccess = { html ->
+                exportHtml(context, uri, "تقرير-$branchTitle", html, landscape = false, onResult = onResult)
+            },
+            onFailure = { onResult("تعذر تجهيز تقرير PDF: ${it.message ?: "خطأ غير معروف"}") }
+        )
+    }
+
+    private fun highSchoolDocument(
+        context: Context,
+        branchTitle: String,
+        grades: List<HighSchoolGradeEntity>
+    ): String {
         val summary = HighSchoolCalculator.calculate(grades)
         val rows = grades.sortedBy { it.displayOrder }.mapIndexed { index, item ->
             val percentage = HighSchoolCalculator.subjectPercentage(item)
@@ -132,28 +204,176 @@ object ReportPrinter {
           <table><thead><tr><th>#</th><th>المادة</th><th>الدرجة</th><th>العظمى</th><th>نسبة المادة</th><th>محتسبة</th></tr></thead>
           <tbody>$rows</tbody></table>
         """.trimIndent()
-        printHtml(context, "تقرير-$branchTitle", document(body, landscape = false), landscape = false)
+        return document(body, landscape = false)
     }
 
-    private fun printHtml(context: Context, jobName: String, html: String, landscape: Boolean) {
-        val webView = WebView(context)
-        webView.settings.javaScriptEnabled = false
-        webView.webViewClient = object : WebViewClient() {
-            private var started = false
-            override fun onPageFinished(view: WebView, url: String?) {
-                if (started) return
-                started = true
-                view.post {
+    private fun printHtml(
+        context: Context,
+        jobName: String,
+        html: String,
+        landscape: Boolean,
+        onResult: (String) -> Unit
+    ) {
+        loadHtml(
+            context = context,
+            html = html,
+            onReady = { view ->
+                runCatching {
                     val manager = context.getSystemService(Context.PRINT_SERVICE) as PrintManager
-                    val media = if (landscape) PrintAttributes.MediaSize.ISO_A4.asLandscape()
-                    else PrintAttributes.MediaSize.ISO_A4.asPortrait()
-                    val attributes = PrintAttributes.Builder()
-                        .setMediaSize(media).setColorMode(PrintAttributes.COLOR_MODE_COLOR).build()
-                    manager.print(jobName, view.createPrintDocumentAdapter(jobName), attributes)
+                    manager.print(
+                        jobName,
+                        view.createPrintDocumentAdapter(jobName),
+                        printAttributes(landscape)
+                    )
+                }.fold(
+                    onSuccess = { onResult("تم فتح نافذة الطباعة؛ اختر الطابعة ثم أكّد الطباعة.") },
+                    onFailure = {
+                        releaseWebView(view)
+                        onResult("تعذر فتح نافذة الطباعة: ${it.message ?: "خطأ غير معروف"}")
+                    }
+                )
+            },
+            onFailure = { onResult("تعذر تجهيز التقرير للطباعة: ${it.message ?: "خطأ غير معروف"}") }
+        )
+    }
+
+    private fun exportHtml(
+        context: Context,
+        uri: Uri,
+        jobName: String,
+        html: String,
+        landscape: Boolean,
+        onResult: (String) -> Unit
+    ) {
+        loadHtml(
+            context = context,
+            html = html,
+            onReady = { view ->
+                val adapter = view.createPrintDocumentAdapter(jobName)
+                val attributes = printAttributes(landscape)
+                val cancellation = CancellationSignal()
+                var descriptor: android.os.ParcelFileDescriptor? = null
+                var completed = false
+
+                fun complete(message: String) {
+                    if (completed) return
+                    completed = true
+                    runCatching { descriptor?.close() }
+                    runCatching { adapter.onFinish() }
+                    releaseWebView(view)
+                    onResult(message)
+                }
+
+                runCatching {
+                    adapter.onStart()
+                    adapter.onLayout(
+                        attributes,
+                        attributes,
+                        cancellation,
+                        object : PrintDocumentAdapter.LayoutResultCallback() {
+                            override fun onLayoutFinished(info: PrintDocumentInfo, changed: Boolean) {
+                                descriptor = runCatching {
+                                    context.contentResolver.openFileDescriptor(uri, "w")
+                                }.getOrElse {
+                                    complete("تعذر فتح الملف المحدد: ${it.message ?: "خطأ غير معروف"}")
+                                    return
+                                }
+                                val output = descriptor
+                                if (output == null) {
+                                    complete("تعذر فتح الملف المحدد للكتابة.")
+                                    return
+                                }
+                                adapter.onWrite(
+                                    arrayOf(PageRange.ALL_PAGES),
+                                    output,
+                                    cancellation,
+                                    object : PrintDocumentAdapter.WriteResultCallback() {
+                                        override fun onWriteFinished(pages: Array<out PageRange>) {
+                                            complete("تم تصدير تقرير PDF بنجاح.")
+                                        }
+
+                                        override fun onWriteFailed(error: CharSequence?) {
+                                            complete("تعذر تصدير PDF: ${error ?: "خطأ غير معروف"}")
+                                        }
+
+                                        override fun onWriteCancelled() {
+                                            complete("أُلغي تصدير تقرير PDF.")
+                                        }
+                                    }
+                                )
+                            }
+
+                            override fun onLayoutFailed(error: CharSequence?) {
+                                complete("تعذر تجهيز صفحات PDF: ${error ?: "خطأ غير معروف"}")
+                            }
+
+                            override fun onLayoutCancelled() {
+                                complete("أُلغي تجهيز تقرير PDF.")
+                            }
+                        },
+                        null
+                    )
+                }.onFailure {
+                    complete("تعذر تصدير PDF: ${it.message ?: "خطأ غير معروف"}")
+                }
+            },
+            onFailure = { onResult("تعذر تجهيز تقرير PDF: ${it.message ?: "خطأ غير معروف"}") }
+        )
+    }
+
+    private fun loadHtml(
+        context: Context,
+        html: String,
+        onReady: (WebView) -> Unit,
+        onFailure: (Throwable) -> Unit
+    ) {
+        var createdView: WebView? = null
+        runCatching {
+            val webView = WebView(context)
+            createdView = webView
+            retainWebView(webView)
+            webView.settings.javaScriptEnabled = false
+            webView.settings.defaultTextEncodingName = "UTF-8"
+            webView.webViewClient = object : WebViewClient() {
+                private var ready = false
+
+                override fun onPageFinished(view: WebView, url: String?) {
+                    if (ready) return
+                    ready = true
+                    view.postDelayed({ onReady(view) }, 200L)
                 }
             }
+            webView.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null)
+        }.onFailure {
+            createdView?.let(::releaseWebView)
+            onFailure(it)
         }
-        webView.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null)
+    }
+
+    private fun printAttributes(landscape: Boolean): PrintAttributes {
+        val media = if (landscape) {
+            PrintAttributes.MediaSize.ISO_A4.asLandscape()
+        } else {
+            PrintAttributes.MediaSize.ISO_A4.asPortrait()
+        }
+        return PrintAttributes.Builder()
+            .setMediaSize(media)
+            .setColorMode(PrintAttributes.COLOR_MODE_COLOR)
+            .setMinMargins(PrintAttributes.Margins.NO_MARGINS)
+            .build()
+    }
+
+    private fun retainWebView(view: WebView) {
+        retainedPrintViews.addLast(view)
+        while (retainedPrintViews.size > 4) {
+            retainedPrintViews.removeFirst().destroy()
+        }
+    }
+
+    private fun releaseWebView(view: WebView) {
+        retainedPrintViews.remove(view)
+        view.stopLoading()
+        view.destroy()
     }
 
     private fun document(body: String, landscape: Boolean): String {
@@ -180,13 +400,14 @@ object ReportPrinter {
           th { background: #dceff2; color: #123f4a; } tr:nth-child(even) { background: #f7f9fa; }
           .courses { table-layout: fixed; font-size: 8px; }
           .courses th:nth-child(1),.courses td:nth-child(1) { width:3%; }
-          .courses th:nth-child(2),.courses td:nth-child(2) { width:17%; }
-          .courses th:nth-child(3),.courses td:nth-child(3) { width:8%; direction:ltr; text-align:center; }
-          .courses th:nth-child(4),.courses td:nth-child(4) { width:7%; }
-          .courses th:nth-child(5),.courses td:nth-child(5) { width:5%; }
-          .courses th:nth-child(6),.courses td:nth-child(6),.courses th:nth-child(7),.courses td:nth-child(7),
-          .courses th:nth-child(8),.courses td:nth-child(8),.courses th:nth-child(9),.courses td:nth-child(9) { width:7%; }
-          .courses th:nth-child(10),.courses td:nth-child(10) { width:9%; }
+          .courses th:nth-child(2),.courses td:nth-child(2) { width:15%; }
+          .courses th:nth-child(3),.courses td:nth-child(3) { width:6%; direction:ltr; text-align:center; }
+          .courses th:nth-child(4),.courses td:nth-child(4) { width:6%; }
+          .courses th:nth-child(5),.courses td:nth-child(5) { width:4%; }
+          .courses th:nth-child(6),.courses td:nth-child(6) { width:14%; }
+          .courses th:nth-child(7),.courses td:nth-child(7),.courses th:nth-child(8),.courses td:nth-child(8),
+          .courses th:nth-child(9),.courses td:nth-child(9),.courses th:nth-child(10),.courses td:nth-child(10) { width:6%; }
+          .courses th:nth-child(11),.courses td:nth-child(11) { width:8%; }
           .name,.grade { font-weight:bold; } .passed { color:#146c38; font-weight:bold; }
           .failed { color:#b3261e; font-weight:bold; } .assist { color:#6b4f00; background:#fff1bd; font-weight:bold; }
           footer { margin-top:12px; color:#6d7784; font-size:9px; text-align:center; }
@@ -216,6 +437,28 @@ object ReportPrinter {
         }
         val bytes = context.resources.openRawResource(resource).use { it.readBytes() }
         return "data:$mime;base64,${Base64.encodeToString(bytes, Base64.NO_WRAP)}"
+    }
+
+    private fun gradeComponents(course: CourseEntity, program: ProgramEntity): String {
+        val components = when (program.gradingScheme) {
+            GradeCalculator.SVU_WEIGHTED -> listOf(
+                "الوظيفة" to course.assignmentGrade,
+                "الامتحان" to course.examGrade
+            )
+            GradeCalculator.ANDALUS_SPLIT_PRACTICAL_THEORY -> listOf(
+                "أعمال الطالب" to (course.studentWorkGrade ?: course.practicalGrade),
+                "العملي" to (course.practicalExamGrade ?: if (course.practicalGrade != null) 0.0 else null),
+                "النظري" to course.theoryGrade
+            )
+            else -> listOf(
+                "العملي" to course.practicalGrade,
+                "النظري" to course.theoryGrade
+            )
+        }
+        val entered = components.mapNotNull { (label, value) ->
+            value?.let { "${escape(label)}: <b>${formatGrade(it)}</b>" }
+        }
+        return entered.joinToString("<br>").ifBlank { "—" }
     }
 
     private fun escape(value: String): String = value.replace("&", "&amp;").replace("<", "&lt;")
