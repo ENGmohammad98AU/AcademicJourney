@@ -12,12 +12,24 @@ import androidx.compose.ui.unit.dp
 import com.academicjourney.app.data.CourseEntity
 import com.academicjourney.app.data.ProgramEntity
 import com.academicjourney.app.domain.GradeCalculator
+import com.academicjourney.app.domain.PartialGradePreviewBuilder
 import java.util.Locale
 
 @Composable
 fun GradeEntryCard(course: CourseEntity, program: ProgramEntity, onSave: (CourseEntity) -> Unit) {
     val svu = program.gradingScheme == GradeCalculator.SVU_WEIGHTED
     val andalus = program.gradingScheme == GradeCalculator.ANDALUS_SPLIT_PRACTICAL_THEORY
+    val firstLabel = when {
+        svu -> "درجة الوظيفة"
+        andalus -> "أعمال الطالب"
+        else -> "درجة العملي"
+    }
+    val secondLabel = when {
+        svu -> "درجة الامتحان"
+        andalus -> "الامتحان العملي"
+        else -> "درجة النظري"
+    }
+    val thirdLabel = "درجة النظري"
 
     if (course.passedWithoutGrade) {
         ElevatedCard(Modifier.fillMaxWidth()) {
@@ -96,6 +108,17 @@ fun GradeEntryCard(course: CourseEntity, program: ProgramEntity, onSave: (Course
         }
     } else null
     val preview = previewCourse?.let { GradeCalculator.calculate(it, program) }
+    val partialPreview = if (!hasInvalidField && validation == null) {
+        PartialGradePreviewBuilder.build(
+            buildList {
+                add(firstLabel to firstNumber)
+                add(secondLabel to secondNumber)
+                if (andalus) add(thirdLabel to thirdNumber)
+            }
+        )
+    } else {
+        null
+    }
 
     val hasExisting = existingFirst != null || existingSecond != null || existingThird != null
 
@@ -104,9 +127,9 @@ fun GradeEntryCard(course: CourseEntity, program: ProgramEntity, onSave: (Course
             Text("إدخال الدرجات", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             Text(
                 when {
-                    andalus -> "يمكن حفظ أعمال الطالب أو الامتحان العملي أو النظري كلٌّ على حدة، ثم إكمال البقية لاحقًا."
-                    svu -> "يمكن حفظ درجة الوظيفة أو الامتحان منفردة، وتظهر النتيجة بعد اكتمال الدرجتين."
-                    else -> "يمكن حفظ درجة العملي دون النظري، ثم العودة لاحقًا لإدخال النظري وإظهار النتيجة النهائية."
+                    andalus -> "يمكن حفظ كل درجة منفردة؛ تظهر القيم المدخلة فورًا مع توضيح الدرجات الناقصة."
+                    svu -> "يمكن حفظ الوظيفة أو الامتحان منفردًا؛ تظهر الدرجة المدخلة فورًا والنتيجة النهائية بعد اكتمالهما."
+                    else -> "يمكن حفظ العملي دون النظري؛ تظهر درجة العملي فورًا مع تنبيه بأن النظري لم يُدخل بعد."
                 },
                 style = MaterialTheme.typography.bodyMedium
             )
@@ -114,26 +137,18 @@ fun GradeEntryCard(course: CourseEntity, program: ProgramEntity, onSave: (Course
             GradeInputField(
                 value = first,
                 onValueChange = { first = it; error = null; saved = false },
-                label = when {
-                    svu -> "درجة الوظيفة"
-                    andalus -> "أعمال الطالب"
-                    else -> "درجة العملي"
-                }
+                label = firstLabel
             )
             GradeInputField(
                 value = second,
                 onValueChange = { second = it; error = null; saved = false },
-                label = when {
-                    svu -> "درجة الامتحان"
-                    andalus -> "الامتحان العملي"
-                    else -> "درجة النظري"
-                }
+                label = secondLabel
             )
             if (andalus) {
                 GradeInputField(
                     value = third,
                     onValueChange = { third = it; error = null; saved = false },
-                    label = "درجة النظري"
+                    label = thirdLabel
                 )
             }
 
@@ -177,6 +192,47 @@ fun GradeEntryCard(course: CourseEntity, program: ProgramEntity, onSave: (Course
 
             validation?.let {
                 Text(it, color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
+            }
+
+            partialPreview?.let { partial ->
+                Surface(
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    shape = MaterialTheme.shapes.medium,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                        Text(
+                            "النتيجة الحالية (غير مكتملة)",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        partial.entered.forEach { component ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(component.label, style = MaterialTheme.typography.bodyMedium)
+                                Text(
+                                    formatEntryGrade(component.value),
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        Text(
+                            partial.missingNotice,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                        Text(
+                            "لا تُحسب حالة النجاح أو الرسوب حتى تكتمل جميع الدرجات المطلوبة.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                    }
+                }
             }
 
             preview?.let { previewResult ->

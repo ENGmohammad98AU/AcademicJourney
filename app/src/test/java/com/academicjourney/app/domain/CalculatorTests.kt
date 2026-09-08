@@ -95,6 +95,33 @@ class CalculatorTests {
     }
 
     @Test
+    fun partialPreviewShowsEnteredPracticalAndNamesMissingTheory() {
+        val preview = PartialGradePreviewBuilder.forCourse(
+            course(practicalGrade = 35.0, theoryGrade = null),
+            program(GradeCalculator.PRACTICAL_THEORY, 0.0, 0.0, 50.0)
+        )
+
+        assertEquals(1, preview?.entered?.size)
+        assertEquals("درجة العملي", preview?.entered?.single()?.label)
+        assertEquals(35.0, preview?.entered?.single()?.value ?: 0.0, 0.001)
+        assertEquals("لم يتم إدخال درجة النظري بعد.", preview?.missingNotice)
+    }
+
+    @Test
+    fun partialPreviewDisappearsWhenNoGradeOrAllGradesArePresent() {
+        assertNull(
+            PartialGradePreviewBuilder.build(
+                listOf("درجة العملي" to null, "درجة النظري" to null)
+            )
+        )
+        assertNull(
+            PartialGradePreviewBuilder.build(
+                listOf("درجة العملي" to 35.0, "درجة النظري" to 45.0)
+            )
+        )
+    }
+
+    @Test
     fun partialComponentsStillRejectAnImpossibleTotal() {
         assertEquals(
             "يجب أن يكون مجموع الدرجات المدخلة بين 0 و100.",

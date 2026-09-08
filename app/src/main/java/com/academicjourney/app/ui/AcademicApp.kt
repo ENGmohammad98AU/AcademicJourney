@@ -63,6 +63,8 @@ import com.academicjourney.app.data.UniversityEntity
 import com.academicjourney.app.domain.GradeCalculator
 import com.academicjourney.app.domain.CourseSearch
 import com.academicjourney.app.domain.HighSchoolCalculator
+import com.academicjourney.app.domain.PartialGradePreview
+import com.academicjourney.app.domain.PartialGradePreviewBuilder
 import com.academicjourney.app.domain.StudentStandingCalculator
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
@@ -1320,6 +1322,7 @@ private fun ProgramScreen(
                     span = { GridItemSpan(maxLineSpan) }
                 ) { c ->
                     val result = GradeCalculator.calculate(c, program)
+                    val partial = PartialGradePreviewBuilder.forCourse(c, program)
                     InteractiveElevatedCard(onClick = { onCourse(c.id) }, modifier = Modifier.fillMaxWidth()) {
                         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -1337,10 +1340,22 @@ private fun ProgramScreen(
                                     when {
                                         result.passedWithoutGrade -> "دون علامة"
                                         result.finalGrade != null -> formatGrade(result.finalGrade)
+                                        partial != null -> partialEnteredText(partial)
                                         else -> "—"
                                     },
-                                    style = MaterialTheme.typography.labelMedium
+                                    style = MaterialTheme.typography.labelMedium,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
                                 )
+                                if (partial != null) {
+                                    Text(
+                                        partial.missingNotice,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
                                 if (c.creditHours != null) {
                                     Text("${c.creditHours} ساعات", style = MaterialTheme.typography.labelSmall)
                                 }
@@ -1584,6 +1599,7 @@ private fun SemesterScreen(program: ProgramEntity?, year: Int, semester: Int, co
             }
             items(visibleCourses, key = { it.id }) { c ->
                 val result = GradeCalculator.calculate(c, program)
+                val partial = PartialGradePreviewBuilder.forCourse(c, program)
                 InteractiveElevatedCard(onClick = { onCourse(c.id) }, modifier = Modifier.fillMaxWidth().heightIn(min = 264.dp)) {
                     Column {
                         Box(Modifier.fillMaxWidth().height(116.dp)) {
@@ -1632,11 +1648,20 @@ private fun SemesterScreen(program: ProgramEntity?, year: Int, semester: Int, co
                                 when {
                                     result.passedWithoutGrade -> "ناجح بالترفيع دون علامة"
                                     result.finalGrade != null -> "الدرجة: ${formatGrade(result.finalGrade)}/100"
+                                    partial != null -> partialEnteredText(partial)
                                     else -> "لم تُدخل الدرجة بعد"
                                 },
                                 fontWeight = FontWeight.SemiBold,
                                 style = MaterialTheme.typography.labelMedium
                             )
+                            if (partial != null) {
+                                Text(
+                                    partial.missingNotice,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                             if (result.assistancePoints > 0) {
                                 Text(
                                     "تتضمن مساعدة +${result.assistancePoints}",
@@ -1663,6 +1688,7 @@ private fun CourseScreen(
 ) {
     if (course == null || program == null) return
     val result = GradeCalculator.calculate(course, program)
+    val partial = PartialGradePreviewBuilder.forCourse(course, program)
     val isDiplomacy = DiplomacyCurriculum.isProgramme(program.name)
     var notes by remember(course.id, course.notes) { mutableStateOf(course.notes) }
     var noteSaved by remember(course.id, course.notes) { mutableStateOf(false) }
@@ -1684,19 +1710,46 @@ private fun CourseScreen(
                         HorizontalDivider()
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
-                                Text("النتيجة النهائية", style = MaterialTheme.typography.labelMedium)
                                 Text(
-                                    when {
-                                        result.passedWithoutGrade -> "ناجح دون علامة"
-                                        result.finalGrade != null -> "${formatGrade(result.finalGrade)}/100"
-                                        else -> "—"
-                                    },
-                                    style = MaterialTheme.typography.headlineMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (result.passedWithoutGrade) Color(0xFF146C38) else MaterialTheme.colorScheme.primary
+                                    if (partial != null) "النتيجة الحالية (غير مكتملة)" else "النتيجة النهائية",
+                                    style = MaterialTheme.typography.labelMedium
                                 )
+                                if (partial != null) {
+                                    partial.entered.forEach { component ->
+                                        Text(
+                                            "${component.label}: ${formatGrade(component.value)}",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                } else {
+                                    Text(
+                                        when {
+                                            result.passedWithoutGrade -> "ناجح دون علامة"
+                                            result.finalGrade != null -> "${formatGrade(result.finalGrade)}/100"
+                                            else -> "—"
+                                        },
+                                        style = MaterialTheme.typography.headlineMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (result.passedWithoutGrade) Color(0xFF146C38) else MaterialTheme.colorScheme.primary
+                                    )
+                                }
                             }
                             GradeStatus(result.isPassed, result.assistancePoints, result.passedWithoutGrade)
+                        }
+                        if (partial != null) {
+                            Text(
+                                partial.missingNotice,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                "لا تظهر حالة النجاح أو الرسوب حتى تكتمل جميع الدرجات المطلوبة.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                         if (result.rawGrade != null && result.roundedGrade != null && result.rawGrade != result.roundedGrade) {
                             Text(
@@ -1989,6 +2042,11 @@ private fun NumericMetricValue(value: String) {
         )
     }
 }
+
+private fun partialEnteredText(partial: PartialGradePreview): String =
+    partial.entered.joinToString(" • ") { component ->
+        "${component.label}: ${formatGrade(component.value)}"
+    }
 
 @Composable
 private fun GradeStatus(status: Boolean?, assistancePoints: Int = 0, passedWithoutGrade: Boolean = false) {
