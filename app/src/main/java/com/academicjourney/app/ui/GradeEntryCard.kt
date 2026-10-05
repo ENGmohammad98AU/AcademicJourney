@@ -13,13 +13,16 @@ import com.academicjourney.app.data.CourseEntity
 import com.academicjourney.app.data.ProgramEntity
 import com.academicjourney.app.domain.GradeCalculator
 import com.academicjourney.app.domain.PartialGradePreviewBuilder
+import com.academicjourney.app.domain.ProjectGradePolicy
 import java.util.Locale
 
 @Composable
 fun GradeEntryCard(course: CourseEntity, program: ProgramEntity, onSave: (CourseEntity) -> Unit) {
     val svu = program.gradingScheme == GradeCalculator.SVU_WEIGHTED
     val andalus = program.gradingScheme == GradeCalculator.ANDALUS_SPLIT_PRACTICAL_THEORY
+    val project = ProjectGradePolicy.usesSingleProjectGrade(course, program)
     val firstLabel = when {
+        project -> "درجة المشروع"
         svu -> "درجة الوظيفة"
         andalus -> "أعمال الطالب"
         else -> "درجة العملي"
@@ -58,11 +61,13 @@ fun GradeEntryCard(course: CourseEntity, program: ProgramEntity, onSave: (Course
     }
 
     val existingFirst = when {
+        project -> ProjectGradePolicy.displayedGrade(course, program)
         svu -> course.assignmentGrade
         andalus -> course.studentWorkGrade ?: course.practicalGrade
         else -> course.practicalGrade
     }
     val existingSecond = when {
+        project -> null
         svu -> course.examGrade
         andalus -> course.practicalExamGrade ?: if (course.practicalGrade != null) 0.0 else null
         else -> course.theoryGrade
@@ -80,20 +85,23 @@ fun GradeEntryCard(course: CourseEntity, program: ProgramEntity, onSave: (Course
     val secondNumber = second.toDoubleOrNull()
     val thirdNumber = third.toDoubleOrNull()
     val hasInvalidField = gradeFieldError(first) != null ||
-        gradeFieldError(second) != null ||
+        (!project && gradeFieldError(second) != null) ||
         (andalus && gradeFieldError(third) != null)
-    val hasAnyInput = first.isNotBlank() || second.isNotBlank() || (andalus && third.isNotBlank())
+    val hasAnyInput = first.isNotBlank() || (!project && second.isNotBlank()) || (andalus && third.isNotBlank())
     val entryComplete = when {
+        project -> firstNumber != null
         andalus -> firstNumber != null && secondNumber != null && thirdNumber != null
         else -> firstNumber != null && secondNumber != null
     }
     val validation = if (hasInvalidField) null else when {
+        project -> GradeCalculator.validateProjectGrade(firstNumber)
         andalus -> GradeCalculator.validatePartialAndalus(firstNumber, secondNumber, thirdNumber)
         svu -> GradeCalculator.validatePartialSvu(firstNumber, secondNumber)
         else -> GradeCalculator.validatePartialPracticalTheory(firstNumber, secondNumber)
     }
     val previewCourse = if (validation == null && entryComplete) {
         when {
+            project -> ProjectGradePolicy.withProjectGrade(course, firstNumber)
             andalus ->
                 course.copy(
                     studentWorkGrade = firstNumber,
@@ -108,7 +116,7 @@ fun GradeEntryCard(course: CourseEntity, program: ProgramEntity, onSave: (Course
         }
     } else null
     val preview = previewCourse?.let { GradeCalculator.calculate(it, program) }
-    val partialPreview = if (!hasInvalidField && validation == null) {
+    val partialPreview = if (!project && !hasInvalidField && validation == null) {
         PartialGradePreviewBuilder.build(
             buildList {
                 add(firstLabel to firstNumber)
@@ -127,6 +135,7 @@ fun GradeEntryCard(course: CourseEntity, program: ProgramEntity, onSave: (Course
             Text("إدخال الدرجات", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             Text(
                 when {
+                    project -> "أدخل درجة المشروع النهائية مباشرةً في حقل واحد بين 0 و100."
                     andalus -> "يمكن حفظ كل درجة منفردة؛ تظهر القيم المدخلة فورًا مع توضيح الدرجات الناقصة."
                     svu -> "يمكن حفظ الوظيفة أو الامتحان منفردًا؛ تظهر الدرجة المدخلة فورًا والنتيجة النهائية بعد اكتمالهما."
                     else -> "يمكن حفظ العملي دون النظري؛ تظهر درجة العملي فورًا مع تنبيه بأن النظري لم يُدخل بعد."
@@ -139,11 +148,13 @@ fun GradeEntryCard(course: CourseEntity, program: ProgramEntity, onSave: (Course
                 onValueChange = { first = it; error = null; saved = false },
                 label = firstLabel
             )
-            GradeInputField(
-                value = second,
-                onValueChange = { second = it; error = null; saved = false },
-                label = secondLabel
-            )
+            if (!project) {
+                GradeInputField(
+                    value = second,
+                    onValueChange = { second = it; error = null; saved = false },
+                    label = secondLabel
+                )
+            }
             if (andalus) {
                 GradeInputField(
                     value = third,
@@ -161,6 +172,7 @@ fun GradeEntryCard(course: CourseEntity, program: ProgramEntity, onSave: (Course
                     Text("قاعدة الحساب", fontWeight = FontWeight.SemiBold)
                     Text(
                         when {
+                            project -> "درجة المشروع هي الدرجة النهائية للمقرر، وتُدخل مباشرةً من 0 إلى 100."
                             andalus -> "المجموع العملي = أعمال الطالب + الامتحان العملي. النتيجة النهائية = المجموع العملي + النظري، وبين 0 و100."
                             svu -> "${program.assignmentWeight.toInt()}% وظيفة + ${program.examWeight.toInt()}% امتحان. كل خانة بين 0 و100."
                             else -> "النتيجة النهائية = العملي + النظري، ويجب أن تكون بين 0 و100."
@@ -300,6 +312,7 @@ fun GradeEntryCard(course: CourseEntity, program: ProgramEntity, onSave: (Course
                     } else {
                         onSave(
                             when {
+                                project -> ProjectGradePolicy.withProjectGrade(course, firstNumber)
                                 andalus -> course.copy(
                                     studentWorkGrade = firstNumber,
                                     practicalExamGrade = secondNumber,
@@ -327,7 +340,12 @@ fun GradeEntryCard(course: CourseEntity, program: ProgramEntity, onSave: (Course
                 modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp)
             ) {
                 Text(
-                    if (hasExisting) "تحديث الدرجات المتاحة" else "حفظ الدرجات المتاحة",
+                    when {
+                        project && hasExisting -> "تحديث درجة المشروع"
+                        project -> "حفظ درجة المشروع"
+                        hasExisting -> "تحديث الدرجات المتاحة"
+                        else -> "حفظ الدرجات المتاحة"
+                    },
                     fontWeight = FontWeight.Bold
                 )
             }

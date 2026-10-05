@@ -4,8 +4,13 @@ import android.media.MediaPlayer
 import android.net.Uri
 import android.widget.VideoView
 import kotlin.math.roundToInt
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -52,6 +57,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.academicjourney.app.BuildConfig
 import com.academicjourney.app.R
 import com.academicjourney.app.data.CourseEntity
@@ -60,6 +67,8 @@ import com.academicjourney.app.data.HighSchoolGradeEntity
 import com.academicjourney.app.data.HighSchoolSeedData
 import com.academicjourney.app.data.ProgramEntity
 import com.academicjourney.app.data.UniversityEntity
+import com.academicjourney.app.domain.AcademicCelebration
+import com.academicjourney.app.domain.AcademicCelebrationDetector
 import com.academicjourney.app.domain.GradeCalculator
 import com.academicjourney.app.domain.CourseSearch
 import com.academicjourney.app.domain.HighSchoolCalculator
@@ -93,6 +102,7 @@ fun AcademicApp(vm: AcademicViewModel) {
     var screen by remember { mutableStateOf<Screen>(Screen.Home) }
     var showIntro by rememberSaveable { mutableStateOf(true) }
     var backupMessage by rememberSaveable { mutableStateOf<String?>(null) }
+    var celebration by remember { mutableStateOf<AcademicCelebration?>(null) }
 
     val createBackupLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/json")
@@ -223,12 +233,220 @@ fun AcademicApp(vm: AcademicViewModel) {
                             if (course != null) screen = Screen.Semester(course.programId, course.academicYear, course.semester)
                             else screen = Screen.Home
                         },
-                        onSave = vm::saveCourse
+                        onSave = { updatedCourse ->
+                            val event = if (course != null && program != null) {
+                                val universityName = universities
+                                    .firstOrNull { it.id == program.universityId }
+                                    ?.name
+                                    .orEmpty()
+                                AcademicCelebrationDetector.detect(
+                                    universityName = universityName,
+                                    program = program,
+                                    courses = courses.filter { it.programId == program.id },
+                                    originalCourse = course,
+                                    updatedCourse = updatedCourse
+                                )
+                            } else {
+                                null
+                            }
+                            vm.saveCourse(updatedCourse)
+                            if (event != null) celebration = event
+                        }
                     )
+                }
+            }
+
+            celebration?.let { event ->
+                AcademicCelebrationDialog(
+                    event = event,
+                    onDismiss = { celebration = null }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AcademicCelebrationDialog(
+    event: AcademicCelebration,
+    onDismiss: () -> Unit
+) {
+    val durationMillis = if (event is AcademicCelebration.Graduation) 5_200L else 4_200L
+    LaunchedEffect(event) {
+        delay(durationMillis)
+        onDismiss()
+    }
+
+    val transition = rememberInfiniteTransition(label = "academic celebration")
+    val pulse by transition.animateFloat(
+        initialValue = 0.92f,
+        targetValue = 1.08f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 650),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "celebration pulse"
+    )
+    val sway by transition.animateFloat(
+        initialValue = -7f,
+        targetValue = 7f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 850),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "celebration sway"
+    )
+    val rise by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 900),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "year promotion rise"
+    )
+    val confettiFall by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(animation = tween(durationMillis = 1_800)),
+        label = "graduation confetti"
+    )
+
+    val emoji: String
+    val title: String
+    val message: String
+    val accent: Color
+    when (event) {
+        is AcademicCelebration.CoursePromotion -> {
+            emoji = "📚✅"
+            title = "مبروك ترفيع المادة!"
+            message = "نجحت في مادة ${event.courseName}. استمر بهذا التقدم الجميل."
+            accent = Color(0xFF146C38)
+        }
+        is AcademicCelebration.YearPromotion -> {
+            emoji = "🚀⬆️"
+            title = "مبروك الانتقال للسنة ${celebrationYearName(event.year)}!"
+            message = "أنجزت متطلبات الترفع وبدأت مرحلة أكاديمية جديدة."
+            accent = Color(0xFF0B6A88)
+        }
+        is AcademicCelebration.Graduation -> {
+            emoji = "🎓🎉🏆"
+            title = "ألف مبروك التخرج!"
+            message = "أتممت جميع مقررات ${event.programName} بنجاح. تستحق هذا الإنجاز."
+            accent = Color(0xFF8A5A00)
+        }
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.42f)),
+            contentAlignment = Alignment.Center
+        ) {
+            if (event is AcademicCelebration.Graduation) {
+                GraduationConfetti(
+                    fall = confettiFall,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+            ElevatedCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp)
+                    .widthIn(max = 480.dp),
+                shape = RoundedCornerShape(28.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 28.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Text(
+                        text = emoji,
+                        style = MaterialTheme.typography.displayLarge,
+                        modifier = Modifier.graphicsLayer {
+                            when (event) {
+                                is AcademicCelebration.CoursePromotion -> {
+                                    scaleX = pulse
+                                    scaleY = pulse
+                                    rotationZ = sway
+                                }
+                                is AcademicCelebration.YearPromotion -> {
+                                    translationY = -34f * rise
+                                    scaleX = 1f + rise * 0.05f
+                                    scaleY = 1f + rise * 0.05f
+                                }
+                                is AcademicCelebration.Graduation -> {
+                                    scaleX = pulse
+                                    scaleY = pulse
+                                    rotationZ = sway
+                                }
+                            }
+                        }
+                    )
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = accent,
+                        textAlign = TextAlign.Center
+                    )
+                    Text(
+                        text = message,
+                        style = MaterialTheme.typography.bodyLarge,
+                        textAlign = TextAlign.Center
+                    )
+                    InteractiveButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp)
+                    ) {
+                        Text("رائع!", fontWeight = FontWeight.Bold)
+                    }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun GraduationConfetti(fall: Float, modifier: Modifier = Modifier) {
+    val colors = listOf(
+        Color(0xFFFFC107),
+        Color(0xFF00A6A6),
+        Color(0xFFE64A73),
+        Color(0xFF6C63FF),
+        Color(0xFF4CAF50)
+    )
+    Canvas(modifier = modifier) {
+        repeat(44) { index ->
+            val x = (((index * 37) % 101) / 100f) * size.width
+            val start = (((index * 53) % 103) / 102f) * size.height
+            val y = (start + fall * size.height * 0.55f) % size.height
+            val color = colors[index % colors.size]
+            if (index % 2 == 0) {
+                drawCircle(color = color, radius = 4f + (index % 4), center = Offset(x, y))
+            } else {
+                drawRect(
+                    color = color,
+                    topLeft = Offset(x, y),
+                    size = Size(width = 7f + (index % 5), height = 12f + (index % 7))
+                )
+            }
+        }
+    }
+}
+
+private fun celebrationYearName(year: Int): String = when (year) {
+    1 -> "الأولى"
+    2 -> "الثانية"
+    3 -> "الثالثة"
+    4 -> "الرابعة"
+    5 -> "الخامسة"
+    else -> year.toString()
 }
 
 @Composable
