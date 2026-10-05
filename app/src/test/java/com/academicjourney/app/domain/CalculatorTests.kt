@@ -224,6 +224,48 @@ class CalculatorTests {
     }
 
     @Test
+    fun mbaAndMcsProjectsUseOneDirectProjectGrade() {
+        val mba = program(
+            GradeCalculator.SVU_WEIGHTED,
+            assignment = 30.0,
+            exam = 70.0,
+            passing = 60.0,
+            name = "ماجستير التأهيل والتخصص في إدارة الأعمال"
+        )
+        val mcs = program(
+            GradeCalculator.SVU_WEIGHTED,
+            assignment = 40.0,
+            exam = 60.0,
+            passing = 60.0,
+            name = "ماجستير التأهيل والتخصص في علوم الحاسوب"
+        )
+        val mbaProject = course(code = "PRJ.40", examGrade = 78.4)
+        val mcsProject = course(code = "MPR", examGrade = 64.0)
+
+        assertTrue(ProjectGradePolicy.usesSingleProjectGrade(mbaProject, mba))
+        assertTrue(ProjectGradePolicy.usesSingleProjectGrade(mcsProject, mcs))
+        assertEquals(78.4, GradeCalculator.calculate(mbaProject, mba).rawGrade ?: 0.0, 0.001)
+        assertEquals(79.0, GradeCalculator.calculate(mbaProject, mba).finalGrade ?: 0.0, 0.001)
+        assertEquals(64.0, GradeCalculator.calculate(mcsProject, mcs).finalGrade ?: 0.0, 0.001)
+        assertNull(PartialGradePreviewBuilder.forCourse(mbaProject, mba))
+    }
+
+    @Test
+    fun legacyProjectComponentsKeepTheirPreviousWeightedResult() {
+        val mcs = program(
+            GradeCalculator.SVU_WEIGHTED,
+            assignment = 40.0,
+            exam = 60.0,
+            passing = 60.0,
+            name = "ماجستير التأهيل والتخصص في علوم الحاسوب"
+        )
+        val legacy = course(code = "MPR", assignmentGrade = 80.0, examGrade = 70.0)
+
+        assertEquals(74.0, ProjectGradePolicy.displayedGrade(legacy, mcs) ?: 0.0, 0.001)
+        assertEquals(74.0, GradeCalculator.calculate(legacy, mcs).finalGrade ?: 0.0, 0.001)
+    }
+
+    @Test
     fun weightedAverageUsesCreditHours() {
         val weighted = program(GradeCalculator.SVU_WEIGHTED, 20.0, 80.0, 50.0)
         val courses = listOf(
@@ -277,6 +319,8 @@ class CalculatorTests {
 
     private fun course(
         id: Long = 1,
+        name: String = "اختبار",
+        code: String = "",
         practicalGrade: Double? = null,
         theoryGrade: Double? = null,
         assignmentGrade: Double? = null,
@@ -290,7 +334,8 @@ class CalculatorTests {
     ) = CourseEntity(
         id = id,
         programId = 1,
-        name = "اختبار",
+        name = name,
+        code = code,
         academicYear = academicYear,
         semester = semester,
         practicalGrade = practicalGrade,
