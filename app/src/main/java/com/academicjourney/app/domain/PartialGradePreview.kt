@@ -31,6 +31,7 @@ object PartialGradePreviewBuilder {
     }
 
     fun forCourse(course: CourseEntity, program: ProgramEntity): PartialGradePreview? {
+        if (ProjectGradePolicy.usesSingleProjectGrade(course, program)) return null
         val fields = when (program.gradingScheme) {
             GradeCalculator.SVU_WEIGHTED -> listOf(
                 "درجة الوظيفة" to course.assignmentGrade,

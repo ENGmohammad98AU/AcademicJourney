@@ -32,11 +32,19 @@ object GradeCalculator {
         }
         val rawGrade = when (program.gradingScheme) {
             SVU_WEIGHTED -> {
-                val assignment = course.assignmentGrade ?: return GradeResult(null, null)
-                val exam = course.examGrade ?: return GradeResult(null, null)
-                if (!valid(assignment) || !valid(exam)) return GradeResult(null, null)
-                assignment * program.assignmentWeight / 100.0 +
-                    exam * program.examWeight / 100.0
+                if (ProjectGradePolicy.usesSingleProjectGrade(course, program)) {
+                    if (listOfNotNull(course.assignmentGrade, course.examGrade).any { !valid(it) }) {
+                        return GradeResult(null, null)
+                    }
+                    ProjectGradePolicy.displayedGrade(course, program)
+                        ?: return GradeResult(null, null)
+                } else {
+                    val assignment = course.assignmentGrade ?: return GradeResult(null, null)
+                    val exam = course.examGrade ?: return GradeResult(null, null)
+                    if (!valid(assignment) || !valid(exam)) return GradeResult(null, null)
+                    assignment * program.assignmentWeight / 100.0 +
+                        exam * program.examWeight / 100.0
+                }
             }
 
             PRACTICAL_THEORY -> {
@@ -141,6 +149,9 @@ object GradeCalculator {
         } else {
             null
         }
+
+    fun validateProjectGrade(grade: Double?): String? =
+        if (grade != null && !valid(grade)) "يجب أن تكون درجة المشروع بين 0 و100." else null
 
     /** Uses credit-hour weighting when every graded course has supplied credit hours. */
     fun average(courses: List<CourseEntity>, program: ProgramEntity): Double? {
