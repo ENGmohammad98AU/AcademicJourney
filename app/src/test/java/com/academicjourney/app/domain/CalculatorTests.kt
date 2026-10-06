@@ -95,6 +95,28 @@ class CalculatorTests {
     }
 
     @Test
+    fun singleFinalGradeUsesOneFieldAndPassesAtFiftyAfterCeiling() {
+        val translation = program(
+            GradeCalculator.SINGLE_FINAL_GRADE,
+            assignment = 0.0,
+            exam = 0.0,
+            passing = 50.0,
+            name = "الترجمة في اللغة الإنكليزية – التعليم المفتوح"
+        )
+
+        val missing = GradeCalculator.calculate(course(), translation)
+        val failed = GradeCalculator.calculate(course(directGrade = 49.0), translation)
+        val roundedPass = GradeCalculator.calculate(course(directGrade = 49.1), translation)
+
+        assertNull(missing.finalGrade)
+        assertFalse(failed.isPassed == true)
+        assertEquals(49.1, roundedPass.rawGrade ?: 0.0, 0.001)
+        assertEquals(50.0, roundedPass.finalGrade ?: 0.0, 0.001)
+        assertTrue(roundedPass.isPassed == true)
+        assertNull(PartialGradePreviewBuilder.forCourse(course(directGrade = 75.0), translation))
+    }
+
+    @Test
     fun partialPreviewShowsEnteredPracticalAndNamesMissingTheory() {
         val preview = PartialGradePreviewBuilder.forCourse(
             course(practicalGrade = 35.0, theoryGrade = null),
@@ -327,6 +349,7 @@ class CalculatorTests {
         examGrade: Double? = null,
         studentWorkGrade: Double? = null,
         practicalExamGrade: Double? = null,
+        directGrade: Double? = null,
         creditHours: Int? = null,
         academicYear: Int = 1,
         semester: Int = 1,
@@ -344,6 +367,7 @@ class CalculatorTests {
         examGrade = examGrade,
         studentWorkGrade = studentWorkGrade,
         practicalExamGrade = practicalExamGrade,
+        directGrade = directGrade,
         creditHours = creditHours,
         passedWithoutGrade = passedWithoutGrade
     )

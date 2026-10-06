@@ -25,6 +25,26 @@ class StudentStandingTests {
     }
 
     @Test
+    fun latakiaTranslationUsesFourRemainingRuleWithDirectGrades() {
+        val program = program(
+            name = "الترجمة في اللغة الإنكليزية – التعليم المفتوح",
+            scheme = GradeCalculator.SINGLE_FINAL_GRADE,
+            passing = 50.0
+        )
+        val firstYear = (1..12).map { course(it.toLong(), 1, passed = it <= 8, direct = true) }
+        val secondYear = (13..24).map { course(it.toLong(), 2, passed = false, direct = true) }
+
+        val standing = StudentStandingCalculator.calculate(
+            universityName = "جامعة اللاذقية",
+            program = program,
+            courses = firstYear + secondYear
+        )
+
+        assertEquals(2, standing.currentYear)
+        assertFalse(standing.isGraduated)
+    }
+
+    @Test
     fun mediaUsesSpecifiedCumulativeCourseThresholds() {
         val program = program(name = "الإعلام والاتصال")
         val courses = (1..40).map { index ->
@@ -94,6 +114,7 @@ class StudentStandingTests {
         year: Int,
         passed: Boolean,
         svu: Boolean = false,
+        direct: Boolean = false,
         hours: Int? = null
     ) = CourseEntity(
         id = id,
@@ -105,6 +126,7 @@ class StudentStandingTests {
         theoryGrade = if (!svu && passed) 30.0 else null,
         assignmentGrade = if (svu && passed) 100.0 else null,
         examGrade = if (svu && passed) 100.0 else null,
+        directGrade = if (direct && passed) 50.0 else null,
         creditHours = hours
     )
 }
