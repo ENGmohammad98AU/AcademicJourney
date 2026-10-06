@@ -2,12 +2,14 @@ package com.academicjourney.app.data
 
 import android.app.Application
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.view.View
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.test.core.app.ApplicationProvider
@@ -52,7 +54,10 @@ class JourneyUiTests {
     }
 
     @Test fun dashboardRendersFourNavigationDestinations() {
+        lateinit var rootView: View
         compose.setContent {
+            val view = LocalView.current
+            SideEffect { rootView = view.rootView }
             androidx.compose.runtime.CompositionLocalProvider(
                 androidx.compose.ui.platform.LocalLayoutDirection provides androidx.compose.ui.unit.LayoutDirection.Rtl
             ) {
@@ -64,9 +69,15 @@ class JourneyUiTests {
         }
         listOf("الرئيسية", "فصلي الحالي", "الإحصائيات", "المزيد").forEach { compose.onNodeWithText(it).assertExists() }
         compose.onNodeWithText(p.name).assertExists()
-        val image = compose.onRoot().captureToImage().asAndroidBitmap()
-        val file = File("build/reports/journey-ui/dashboard.png")
-        file.parentFile!!.mkdirs()
-        file.outputStream().use { image.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        // Robolectric has no hardware frame producer for Compose's forceRedraw/PixelCopy.
+        // Draw the real measured Android view with native Skia, as ShadowPixelCopy does.
+        compose.runOnIdle {
+            assertTrue(rootView.width > 0 && rootView.height > 0)
+            val image = Bitmap.createBitmap(rootView.width, rootView.height, Bitmap.Config.ARGB_8888)
+            rootView.draw(Canvas(image))
+            val file = File("build/reports/journey-ui/dashboard.png")
+            file.parentFile!!.mkdirs()
+            file.outputStream().use { image.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        }
     }
 }
