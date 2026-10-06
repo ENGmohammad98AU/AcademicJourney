@@ -83,7 +83,8 @@ class AcademicViewModel(app: Application) : AndroidViewModel(app) {
     fun saveCourse(course: CourseEntity, onSaved: (CourseEntity, CourseEntity) -> Unit = { _, _ -> }) = mutation("تم حفظ الدرجات.") {
         val pair = database.withTransaction {
             val before = dao.getCourse(course.id) ?: error("المقرر غير موجود.")
-            val after = GradeSnapshot.apply(before, GradeSnapshot.encode(course))
+            // Grade-entry drafts must not overwrite a note saved independently while they were open.
+            val after = GradeSnapshot.apply(before, GradeSnapshot.encode(course)).copy(notes = before.notes)
             val program = dao.getPrograms().first { it.id == before.programId }
             JourneyBackup.validateCourse(after, program)
             record(before, after)
