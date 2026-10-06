@@ -48,7 +48,8 @@ object JourneyReminders {
     suspend fun notify(context: Context, id: String) {
         val dao = AcademicDatabase.get(context).academicDao()
         val event = dao.getEvent(id) ?: return
-        if (event.notifiedAt != null || event.reminderMinutes == null || event.startsAt < System.currentTimeMillis() || !allowed(context)) return
+        // Inexact alarms can be delivered shortly after the event time (especially a 0-minute reminder).
+        if (event.notifiedAt != null || event.reminderMinutes == null || event.startsAt + 3_600_000L < System.currentTimeMillis() || !allowed(context)) return
         // Ignore an obsolete alarm after its event was postponed.
         if (event.startsAt - event.reminderMinutes * 60_000L > System.currentTimeMillis() + 1000) {
             schedule(context, event)
