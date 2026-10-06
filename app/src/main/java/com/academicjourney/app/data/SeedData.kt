@@ -210,6 +210,29 @@ dao.insertCourse(CourseEntity(programId=p5,name="تاريخ الجزيرة ال�
 dao.insertCourse(CourseEntity(programId=p5,name="بلاد الشام والعراق المعاصر",code="",language="",academicYear=4,semester=2))
 dao.insertCourse(CourseEntity(programId=p5,name="تاريخ أمريكا المعاصرة",code="",language="",academicYear=4,semester=2))
 dao.insertCourse(CourseEntity(programId=p5,name="الحضارة الأوروبية",code="",language="",academicYear=4,semester=2))
+val p5Translation=dao.insertProgram(
+    ProgramEntity(
+        universityId=u2,
+        name=LatakiaTranslationCurriculum.PROGRAM_NAME,
+        degreeType=LatakiaTranslationCurriculum.DEGREE_TYPE,
+        gradingScheme=LatakiaTranslationCurriculum.GRADING_SCHEME,
+        assignmentWeight=0.0,
+        examWeight=0.0,
+        passingGrade=LatakiaTranslationCurriculum.PASSING_GRADE
+    )
+)
+LatakiaTranslationCurriculum.courses.forEach { course ->
+    dao.insertCourse(
+        CourseEntity(
+            programId=p5Translation,
+            name=course.name,
+            code=course.code,
+            language="الإنكليزية",
+            academicYear=course.academicYear,
+            semester=course.semester
+        )
+    )
+}
 val p6=dao.insertProgram(ProgramEntity(universityId=u3,name="الدراسات الدولية والدبلوماسية – التعليم المفتوح",degreeType="إجازة",gradingScheme="PRACTICAL_THEORY",assignmentWeight=0.0,examWeight=0.0,passingGrade=50.0))
 dao.insertCourse(CourseEntity(programId=p6,name="مدخل إلى علم القانون",code="510",language="",academicYear=1,semester=1))
 dao.insertCourse(CourseEntity(programId=p6,name="المدخل إلى علم العلاقات الدولية",code="511",language="",academicYear=1,semester=1))

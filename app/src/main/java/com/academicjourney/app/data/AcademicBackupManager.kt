@@ -62,6 +62,7 @@ object AcademicBackupManager {
                 putNullable("examGrade", course.examGrade)
                 putNullable("studentWorkGrade", course.studentWorkGrade)
                 putNullable("practicalExamGrade", course.practicalExamGrade)
+                putNullable("directGrade", course.directGrade)
                 put("notes", course.notes)
                 putNullable("creditHoursAtExport", course.creditHours)
                 put("passedWithoutGradeAtExport", course.passedWithoutGrade)
@@ -171,6 +172,7 @@ object AcademicBackupManager {
                 examGrade = item.nullableGrade("examGrade"),
                 studentWorkGrade = item.nullableGrade("studentWorkGrade"),
                 practicalExamGrade = item.nullableGrade("practicalExamGrade"),
+                directGrade = item.nullableGrade("directGrade"),
                 notes = notes
             )
         }

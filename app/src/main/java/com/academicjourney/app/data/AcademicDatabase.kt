@@ -14,7 +14,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         CourseEntity::class,
         HighSchoolGradeEntity::class
     ],
-    version = 7,
+    version = 8,
     exportSchema = false
 )
 abstract class AcademicDatabase : RoomDatabase() {
@@ -231,6 +231,73 @@ abstract class AcademicDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // A dedicated nullable column keeps direct one-field grades separate from all
+                // legacy practical/theory and assignment/exam data.
+                db.execSQL("ALTER TABLE `CourseEntity` ADD COLUMN `directGrade` REAL")
+
+                db.execSQL(
+                    """
+                    INSERT INTO `ProgramEntity` (
+                        `universityId`, `name`, `degreeType`, `gradingScheme`,
+                        `assignmentWeight`, `examWeight`, `passingGrade`
+                    )
+                    SELECT u.`id`, ?, ?, ?, 0.0, 0.0, ?
+                    FROM `UniversityEntity` u
+                    WHERE u.`name` = ?
+                      AND NOT EXISTS (
+                          SELECT 1 FROM `ProgramEntity` p
+                          WHERE p.`universityId` = u.`id` AND p.`name` = ?
+                      )
+                    """.trimIndent(),
+                    arrayOf(
+                        LatakiaTranslationCurriculum.PROGRAM_NAME,
+                        LatakiaTranslationCurriculum.DEGREE_TYPE,
+                        LatakiaTranslationCurriculum.GRADING_SCHEME,
+                        LatakiaTranslationCurriculum.PASSING_GRADE,
+                        LatakiaTranslationCurriculum.UNIVERSITY_NAME,
+                        LatakiaTranslationCurriculum.PROGRAM_NAME
+                    )
+                )
+
+                // Codes are the stable curriculum identity. NOT EXISTS makes the migration safe
+                // even if a pre-release build already inserted one or more of these rows.
+                LatakiaTranslationCurriculum.courses.forEach { course ->
+                    db.execSQL(
+                        """
+                        INSERT INTO `CourseEntity` (
+                            `programId`, `name`, `code`, `language`, `academicYear`, `semester`,
+                            `practicalGrade`, `theoryGrade`, `assignmentGrade`, `examGrade`, `notes`,
+                            `studentWorkGrade`, `practicalExamGrade`, `creditHours`,
+                            `passedWithoutGrade`, `directGrade`
+                        )
+                        SELECT p.`id`, ?, ?, 'الإنكليزية', ?, ?,
+                               NULL, NULL, NULL, NULL, '', NULL, NULL, NULL, 0, NULL
+                        FROM `ProgramEntity` p
+                        INNER JOIN `UniversityEntity` u ON u.`id` = p.`universityId`
+                        WHERE u.`name` = ? AND p.`name` = ?
+                          AND NOT EXISTS (
+                              SELECT 1 FROM `CourseEntity` c
+                              WHERE c.`programId` = p.`id` AND c.`code` = ?
+                          )
+                        ORDER BY p.`id`
+                        LIMIT 1
+                        """.trimIndent(),
+                        arrayOf(
+                            course.name,
+                            course.code,
+                            course.academicYear,
+                            course.semester,
+                            LatakiaTranslationCurriculum.UNIVERSITY_NAME,
+                            LatakiaTranslationCurriculum.PROGRAM_NAME,
+                            course.code
+                        )
+                    )
+                }
+            }
+        }
+
         fun get(context: Context): AcademicDatabase = INSTANCE ?: synchronized(this) {
             INSTANCE ?: Room.databaseBuilder(
                 context.applicationContext,
@@ -242,7 +309,8 @@ abstract class AcademicDatabase : RoomDatabase() {
                     MIGRATION_3_4,
                     MIGRATION_4_5,
                     MIGRATION_5_6,
-                    MIGRATION_6_7
+                    MIGRATION_6_7,
+                    MIGRATION_7_8
                 )
                 .build()
                 .also { INSTANCE = it }
