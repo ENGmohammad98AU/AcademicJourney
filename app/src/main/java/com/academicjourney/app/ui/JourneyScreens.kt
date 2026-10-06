@@ -1,6 +1,7 @@
 package com.academicjourney.app.ui
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -15,6 +16,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -112,7 +114,7 @@ fun JourneyDashboard(universities: List<UniversityEntity>, programs: List<Progra
             items(universities.chunked(2)) { row ->
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     row.forEach { u -> PearlCard(Modifier.weight(1f), onClick = { onUniversity(u.id) }) {
-                        Icon(Icons.Rounded.School, null, tint = MaterialTheme.colorScheme.primary)
+                        Image(painterResource(universityLogo(u.name)), "شعار ${u.name}", modifier = Modifier.size(44.dp))
                         Text(u.name, fontWeight = FontWeight.Bold, minLines = 2)
                         Text("${programs.count { it.universityId == u.id }} برامج", style = MaterialTheme.typography.bodySmall)
                     } }
@@ -151,12 +153,12 @@ fun CourseSummary(c: CourseEntity, p: ProgramEntity) {
 
 @Composable
 fun CourseAccordion(c: CourseEntity, p: ProgramEntity, expanded: Boolean, onToggle: () -> Unit,
-    onSave: (CourseEntity) -> Unit, vm: AcademicViewModel, onSchedule: (Long) -> Unit) {
+    onSave: (CourseEntity) -> Unit, vm: AcademicViewModel, onSchedule: (Long) -> Unit, canCollapse: Boolean = true) {
     val holder = rememberSaveableStateHolder()
     PearlCard {
-        Row(Modifier.fillMaxWidth().clickable(onClick = onToggle), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().clickable(enabled = canCollapse, onClick = onToggle), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.weight(1f)) { CourseSummary(c, p) }
-            Icon(if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, if (expanded) "طي التفاصيل" else "عرض التفاصيل")
+            if (canCollapse) Icon(if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, if (expanded) "طي التفاصيل" else "عرض التفاصيل")
         }
         if (expanded) holder.SaveableStateProvider(c.id) {
             HorizontalDivider()
@@ -173,6 +175,10 @@ fun CourseAccordion(c: CourseEntity, p: ProgramEntity, expanded: Boolean, onTogg
                 }
             }
             var note by rememberSaveable(c.id, c.notes) { mutableStateOf(c.notes) }
+            var noteBaseline by rememberSaveable(c.id) { mutableStateOf(c.notes) }
+            LaunchedEffect(c.notes) {
+                if (noteBaseline != c.notes) { note = c.notes; noteBaseline = c.notes }
+            }
             OutlinedTextField(note, { note = it }, Modifier.fillMaxWidth(), label = { Text("ملاحظاتي") }, minLines = 2)
             TextButton(onClick = { vm.saveNotes(c.id, note) }, enabled = note != c.notes) { Text("حفظ الملاحظة") }
             OutlinedButton(onClick = { onSchedule(c.id) }, Modifier.fillMaxWidth()) {

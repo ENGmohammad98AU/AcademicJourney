@@ -221,7 +221,7 @@ fun AcademicApp(vm: AcademicViewModel, openCourse: Long = 0, openProgram: Long =
                             val p = programs.firstOrNull { it.id == c?.programId }
                             JourneyPage(c?.name ?: "المقرر", ::back) { pad ->
                                 LazyColumn(Modifier.padding(pad), contentPadding = PaddingValues(16.dp)) {
-                                    if (c != null && p != null) item { CourseAccordion(c, p, true, {}, save, vm, schedule) }
+                                    if (c != null && p != null) item { CourseAccordion(c, p, true, {}, save, vm, schedule, canCollapse = false) }
                                 }
                             }
                         }
@@ -1118,7 +1118,7 @@ private fun UniversityCard(university: UniversityEntity, programCount: Int, cour
 }
 
 @DrawableRes
-private fun universityLogo(name: String): Int = when {
+internal fun universityLogo(name: String): Int = when {
     "الافتراضية" in name -> R.drawable.logo_svu
     "الأندلس" in name -> R.drawable.logo_andalus
     "دمشق" in name -> R.drawable.logo_damascus
@@ -1394,6 +1394,11 @@ private fun ProgramScreen(
                         }
                         HorizontalDivider()
                         Text("حد النجاح: ${program.passingGrade.toInt()}/100", fontWeight = FontWeight.SemiBold)
+                        Text(
+                            com.academicjourney.app.domain.GradeExplanation.average(courses, program),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                         Text(
                             when (program.gradingScheme) {
                                 GradeCalculator.SVU_WEIGHTED ->

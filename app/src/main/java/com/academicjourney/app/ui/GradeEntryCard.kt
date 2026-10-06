@@ -82,6 +82,21 @@ fun GradeEntryCard(course: CourseEntity, program: ProgramEntity, onSave: (Course
     var first by rememberSaveable(course.id, existingFirst) { mutableStateOf(existingFirst?.cleanText().orEmpty()) }
     var second by rememberSaveable(course.id, existingSecond) { mutableStateOf(existingSecond?.cleanText().orEmpty()) }
     var third by rememberSaveable(course.id, existingThird) { mutableStateOf(existingThird?.cleanText().orEmpty()) }
+    var baselineFirst by rememberSaveable(course.id) { mutableStateOf(existingFirst) }
+    var baselineSecond by rememberSaveable(course.id) { mutableStateOf(existingSecond) }
+    var baselineThird by rememberSaveable(course.id) { mutableStateOf(existingThird) }
+    // A restored draft belongs to the saved grades it was started from. External restore/undo
+    // invalidates it, while collapsing and reopening the same unchanged course keeps it.
+    LaunchedEffect(existingFirst, existingSecond, existingThird) {
+        if (baselineFirst != existingFirst || baselineSecond != existingSecond || baselineThird != existingThird) {
+            first = existingFirst?.cleanText().orEmpty()
+            second = existingSecond?.cleanText().orEmpty()
+            third = existingThird?.cleanText().orEmpty()
+            baselineFirst = existingFirst
+            baselineSecond = existingSecond
+            baselineThird = existingThird
+        }
+    }
     var error by remember(course.id) { mutableStateOf<String?>(null) }
     var saved by remember(course.id) { mutableStateOf(false) }
     var showClearDialog by remember(course.id) { mutableStateOf(false) }

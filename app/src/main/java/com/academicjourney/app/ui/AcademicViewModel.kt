@@ -192,7 +192,11 @@ class AcademicViewModel(app: Application) : AndroidViewModel(app) {
                     restoreOriginalEvents = dao.getEvents()
                     val eventDifferences = plan.events.mapNotNull { e ->
                         val old = restoreOriginalEvents.firstOrNull { it.id == e.id }
-                        if (old == e) null else "${e.title} • ${if (old == null) "إضافة موعد" else "تغيير موعد محفوظ"}"
+                        if (old == e) null else buildString {
+                            append("${e.title} • ")
+                            if (old == null) append("إضافة موعد: ${journeyDate(e.startsAt)}")
+                            else append("قبل: ${old.title} • ${journeyDate(old.startsAt)} • ${old.place} • تنبيه ${old.reminderMinutes ?: "دون"}\nبعد: ${e.title} • ${journeyDate(e.startsAt)} • ${e.place} • تنبيه ${e.reminderMinutes ?: "دون"}")
+                        }
                     }
                     val historyIds = dao.getHistory().map { it.id }.toSet()
                     val archiveIds = dao.getArchives().map { it.id }.toSet()
@@ -225,7 +229,7 @@ class AcademicViewModel(app: Application) : AndroidViewModel(app) {
                 dao.insertArchives(plan.archives)
             }
             runCatching { JourneyReminders.reschedule(appContext, dao.getEvents()) }
-            refreshWidget()
+            runCatching { refreshWidget() }
         }
         message.value = result.fold({ "تمت الاستعادة. العلامات والسجل والأرشيف محفوظة." }, { "لم تكتمل الاستعادة: ${it.message}" })
         restorePreview.value = null
