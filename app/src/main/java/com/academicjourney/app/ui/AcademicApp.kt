@@ -81,7 +81,12 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-private sealed interface Screen {
+private sealed interface Screen : java.io.Serializable {
+    data object Current : Screen
+    data object More : Screen
+    data object History : Screen
+    data object Archives : Screen
+    data class Dates(val courseId: Long? = null) : Screen
     data object Home : Screen
     data object Universities : Screen
     data object HighSchool : Screen
@@ -95,173 +100,136 @@ private sealed interface Screen {
 }
 
 @Composable
-fun AcademicApp(vm: AcademicViewModel) {
+fun AcademicApp(vm: AcademicViewModel, openCourse: Long = 0, openProgram: Long = 0, launchToken: Long = 0) {
     val universities by vm.universities.collectAsState()
     val programs by vm.programs.collectAsState()
     val courses by vm.courses.collectAsState()
     val highSchoolGrades by vm.highSchoolGrades.collectAsState()
-    var screen by remember { mutableStateOf<Screen>(Screen.Home) }
+    val events by vm.events.collectAsState()
+    val history by vm.history.collectAsState()
+    val archives by vm.archives.collectAsState()
+    val pinned by vm.pinnedProgram.collectAsState()
+    val lastCourse by vm.lastCourse.collectAsState()
+    val lastBackup by vm.lastBackup.collectAsState()
+    val preview by vm.restorePreview.collectAsState()
+    val busy by vm.restoreBusy.collectAsState()
+    val message by vm.message.collectAsState()
+    var screen by rememberSaveable { mutableStateOf<Screen>(Screen.Home) }
+    var eventBack by rememberSaveable { mutableStateOf<Screen>(Screen.More) }
+    val pageState = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
     var showIntro by rememberSaveable { mutableStateOf(true) }
     var backupMessage by rememberSaveable { mutableStateOf<String?>(null) }
     var celebration by remember { mutableStateOf<AcademicCelebration?>(null) }
+    val snackbar = remember { SnackbarHostState() }
 
-    val createBackupLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument("application/json")
-    ) { uri ->
-        uri?.let {
-            backupMessage = "جارٍ تجهيز النسخة الاحتياطية..."
-            vm.exportBackup(it) { result -> backupMessage = result }
+    val navigate: (String) -> Unit = { screen = when (it) {
+        "current" -> Screen.Current
+        "stats" -> Screen.Statistics
+        "more" -> Screen.More
+        else -> Screen.Home
+    } }
+    val selectProgram: (Long) -> Unit = {
+        if (pinned == 0L) vm.pinProgram(it)
+        screen = Screen.Program(it)
+    }
+    val selectCourse: (Long) -> Unit = { vm.rememberCourse(it); screen = Screen.Course(it) }
+    val schedule: (Long) -> Unit = { eventBack = screen; screen = Screen.Dates(it) }
+    val save: (CourseEntity) -> Unit = { updated ->
+        vm.saveCourse(updated) { before, after ->
+            programs.firstOrNull { it.id == after.programId }?.let { program ->
+                val event = AcademicCelebrationDetector.detect(
+                    universityName = universities.firstOrNull { it.id == program.universityId }?.name.orEmpty(),
+                    program = program,
+                    courses = courses.filter { it.programId == program.id }.map { if (it.id == before.id) before else it },
+                    originalCourse = before, updatedCourse = after)
+                if (event != null) celebration = event
+            }
         }
     }
-    val restoreBackupLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        uri?.let {
-            backupMessage = "جارٍ التحقق من النسخة الاحتياطية واستعادة البيانات..."
-            vm.importBackup(it) { result -> backupMessage = result }
-        }
+    val createBackupLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        uri?.let { backupMessage = "جارٍ تجهيز النسخة الاحتياطية…"; vm.exportBackup(it) { result -> backupMessage = result; vm.message.value = result } }
     }
+    val restoreBackupLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let { backupMessage = "جارٍ قراءة النسخة ومعاينة الفروق…"; vm.importBackup(it) { result -> backupMessage = result; vm.message.value = result } }
+    }
+    val exportBackup = {
+        val stamp = SimpleDateFormat("yyyyMMdd-HHmm", Locale.US).format(Date())
+        createBackupLauncher.launch("AcademicJourney-backup-$stamp.json")
+    }
+    val importBackup = { restoreBackupLauncher.launch(arrayOf("application/json", "text/plain")) }
 
     LaunchedEffect(Unit) { vm.ensureSeeded() }
+    LaunchedEffect(launchToken) {
+        if (openCourse > 0) selectCourse(openCourse)
+        else if (openProgram > 0) selectProgram(openProgram)
+    }
+    LaunchedEffect(message) { message?.let { text ->
+        snackbar.showSnackbar(text, withDismissAction = true)
+        if (vm.message.value == text) vm.message.value = null
+    } }
 
-    BackHandler(enabled = screen !is Screen.Home) {
+    fun back() {
         screen = when (val s = screen) {
-            Screen.Home -> Screen.Home
-            Screen.Universities -> Screen.Home
-            Screen.HighSchool -> Screen.Home
+            Screen.Home, Screen.Current, Screen.More, Screen.Statistics, Screen.Universities, Screen.HighSchool -> Screen.Home
+            Screen.History, Screen.Archives -> Screen.More
+            is Screen.Dates -> eventBack
             is Screen.HighSchoolBranch -> Screen.HighSchool
-            is Screen.University -> Screen.Universities
-            is Screen.Program -> programs.firstOrNull { it.id == s.id }?.let { Screen.University(it.universityId) } ?: Screen.Universities
+            is Screen.University -> Screen.Home
+            is Screen.Program -> programs.firstOrNull { it.id == s.id }?.let { Screen.University(it.universityId) } ?: Screen.Home
             is Screen.Year -> Screen.Program(s.programId)
             is Screen.Semester -> Screen.Year(s.programId, s.year)
-            is Screen.Course -> {
-                val c = courses.firstOrNull { it.id == s.id }
-                if (c != null) Screen.Semester(c.programId, c.academicYear, c.semester) else Screen.Home
-            }
-            Screen.Statistics -> Screen.Home
+            is Screen.Course -> courses.firstOrNull { it.id == s.id }?.let { Screen.Year(it.programId, it.academicYear) } ?: Screen.Home
         }
     }
+    BackHandler(enabled = screen !is Screen.Home && !showIntro) { back() }
 
-    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
+    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl, LocalJourneyNavigation provides navigate) {
         AcademicJourneyTheme {
-            if (showIntro) {
-                IntroVideoScreen(onFinished = { showIntro = false })
-            } else when (val s = screen) {
-                Screen.Home -> HomeScreen(
-                    onUniversities = { screen = Screen.Universities },
-                    onHighSchool = { screen = Screen.HighSchool },
-                    onStatistics = { screen = Screen.Statistics },
-                    onExportBackup = {
-                        val stamp = SimpleDateFormat("yyyyMMdd-HHmm", Locale.US).format(Date())
-                        createBackupLauncher.launch("AcademicJourney-backup-$stamp.json")
-                    },
-                    onImportBackup = {
-                        restoreBackupLauncher.launch(arrayOf("application/json", "text/plain"))
-                    },
-                    backupMessage = backupMessage
-                )
-                Screen.Universities -> UniversitiesScreen(
-                    universities = universities,
-                    programs = programs,
-                    courses = courses,
-                    onBack = { screen = Screen.Home },
-                    onHome = { screen = Screen.Home },
-                    onUniversity = { screen = Screen.University(it) },
-                    onStatistics = { screen = Screen.Statistics }
-                )
-                Screen.HighSchool -> HighSchoolScreen(
-                    grades = highSchoolGrades,
-                    onBack = { screen = Screen.Home },
-                    onBranch = { screen = Screen.HighSchoolBranch(it) }
-                )
-                is Screen.HighSchoolBranch -> HighSchoolBranchScreen(
-                    branch = s.branch,
-                    grades = highSchoolGrades.filter { it.branch == s.branch },
-                    onBack = { screen = Screen.HighSchool },
-                    onSave = vm::saveHighSchoolGrade
-                )
-                Screen.Statistics -> StatisticsScreen(
-                    universities = universities,
-                    programs = programs,
-                    courses = courses,
-                    highSchoolGrades = highSchoolGrades,
-                    onHome = { screen = Screen.Home },
-                    onProgram = { screen = Screen.Program(it) },
-                    onHighSchool = { screen = Screen.HighSchool }
-                )
-                is Screen.University -> UniversityScreen(
-                    university = universities.firstOrNull { it.id == s.id },
-                    programs = programs.filter { it.universityId == s.id },
-                    courses = courses,
-                    onBack = { screen = Screen.Universities },
-                    onProgram = { screen = Screen.Program(it) }
-                )
-                is Screen.Program -> ProgramScreen(
-                    program = programs.firstOrNull { it.id == s.id },
-                    universityName = programs.firstOrNull { it.id == s.id }?.let { selectedProgram ->
-                        universities.firstOrNull { it.id == selectedProgram.universityId }?.name
-                    }.orEmpty(),
-                    courses = courses.filter { it.programId == s.id },
-                    onBack = {
-                        val p = programs.firstOrNull { it.id == s.id }
-                        screen = p?.let { Screen.University(it.universityId) } ?: Screen.Universities
-                    },
-                    onYear = { year -> screen = Screen.Year(s.id, year) },
-                    onCourse = { screen = Screen.Course(it) }
-                )
-                is Screen.Year -> YearScreen(
-                    program = programs.firstOrNull { it.id == s.programId },
-                    year = s.year,
-                    courses = courses.filter { it.programId == s.programId && it.academicYear == s.year },
-                    onBack = { screen = Screen.Program(s.programId) },
-                    onSemester = { semester -> screen = Screen.Semester(s.programId, s.year, semester) }
-                )
-                is Screen.Semester -> SemesterScreen(
-                    program = programs.firstOrNull { it.id == s.programId },
-                    year = s.year,
-                    semester = s.semester,
-                    courses = courses.filter { it.programId == s.programId && it.academicYear == s.year && it.semester == s.semester },
-                    onBack = { screen = Screen.Year(s.programId, s.year) },
-                    onCourse = { screen = Screen.Course(it) }
-                )
-                is Screen.Course -> {
-                    val course = courses.firstOrNull { it.id == s.id }
-                    val program = course?.let { c -> programs.firstOrNull { it.id == c.programId } }
-                    CourseScreen(
-                        course = course,
-                        program = program,
-                        onBack = {
-                            if (course != null) screen = Screen.Semester(course.programId, course.academicYear, course.semester)
-                            else screen = Screen.Home
-                        },
-                        onSave = { updatedCourse ->
-                            val event = if (course != null && program != null) {
-                                val universityName = universities
-                                    .firstOrNull { it.id == program.universityId }
-                                    ?.name
-                                    .orEmpty()
-                                AcademicCelebrationDetector.detect(
-                                    universityName = universityName,
-                                    program = program,
-                                    courses = courses.filter { it.programId == program.id },
-                                    originalCourse = course,
-                                    updatedCourse = updatedCourse
-                                )
-                            } else {
-                                null
+            Box(Modifier.fillMaxSize()) {
+                if (showIntro) IntroVideoScreen(onFinished = { showIntro = false })
+                else pageState.SaveableStateProvider(screen.toString()) {
+                    when (val s = screen) {
+                        Screen.Home -> JourneyDashboard(universities, programs, courses, events, pinned, lastCourse,
+                            { screen = Screen.University(it) }, selectProgram, selectCourse,
+                            { eventBack = Screen.Home; screen = Screen.Dates() }, { screen = Screen.HighSchool })
+                        Screen.Current -> CurrentSemesterScreen(programs, universities, courses, vm, save, schedule)
+                        Screen.More -> JourneyMoreScreen(vm, programs, universities, pinned, lastBackup, backupMessage,
+                            exportBackup, importBackup, { eventBack = Screen.More; screen = Screen.Dates() },
+                            { screen = Screen.History }, { screen = Screen.Archives }, { screen = Screen.HighSchool })
+                        Screen.History -> HistoryScreen(history, courses, highSchoolGrades, vm, ::back)
+                        Screen.Archives -> ArchiveScreen(archives, ::back)
+                        is Screen.Dates -> EventsScreen(events, courses, programs, vm, s.courseId, ::back)
+                        Screen.Universities -> UniversitiesScreen(universities, programs, courses,
+                            onBack = ::back, onHome = { screen = Screen.Home },
+                            onUniversity = { screen = Screen.University(it) }, onStatistics = { screen = Screen.Statistics })
+                        Screen.HighSchool -> HighSchoolScreen(highSchoolGrades, ::back, { screen = Screen.HighSchoolBranch(it) })
+                        is Screen.HighSchoolBranch -> HighSchoolBranchScreen(s.branch,
+                            highSchoolGrades.filter { it.branch == s.branch }, ::back, vm::saveHighSchoolGrade)
+                        Screen.Statistics -> StatisticsScreen(universities, programs, courses, highSchoolGrades,
+                            { screen = Screen.Home }, selectProgram, { screen = Screen.HighSchool })
+                        is Screen.University -> UniversityScreen(universities.firstOrNull { it.id == s.id },
+                            programs.filter { it.universityId == s.id }, courses, ::back, selectProgram)
+                        is Screen.Program -> ProgramScreen(programs.firstOrNull { it.id == s.id },
+                            programs.firstOrNull { it.id == s.id }?.let { p -> universities.firstOrNull { it.id == p.universityId }?.name }.orEmpty(),
+                            courses.filter { it.programId == s.id }, ::back, { screen = Screen.Year(s.id, it) }, selectCourse)
+                        is Screen.Year -> ExpandableYearScreen(programs.firstOrNull { it.id == s.programId }, s.year,
+                            courses.filter { it.programId == s.programId && it.academicYear == s.year }, vm, ::back, save, schedule)
+                        is Screen.Semester -> ExpandableYearScreen(programs.firstOrNull { it.id == s.programId }, s.year,
+                            courses.filter { it.programId == s.programId && it.academicYear == s.year }, vm, ::back, save, schedule)
+                        is Screen.Course -> {
+                            val c = courses.firstOrNull { it.id == s.id }
+                            val p = programs.firstOrNull { it.id == c?.programId }
+                            JourneyPage(c?.name ?: "المقرر", ::back) { pad ->
+                                LazyColumn(Modifier.padding(pad), contentPadding = PaddingValues(16.dp)) {
+                                    if (c != null && p != null) item { CourseAccordion(c, p, true, {}, save, vm, schedule) }
+                                }
                             }
-                            vm.saveCourse(updatedCourse)
-                            if (event != null) celebration = event
                         }
-                    )
+                    }
                 }
-            }
-
-            celebration?.let { event ->
-                AcademicCelebrationDialog(
-                    event = event,
-                    onDismiss = { celebration = null }
-                )
+                if (!showIntro) SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(start = 16.dp, end = 16.dp, bottom = 96.dp))
+                preview?.let { RestorePreviewDialog(it, busy, vm::confirmRestore, vm::cancelRestore) }
+                celebration?.let { AcademicCelebrationDialog(it) { celebration = null } }
             }
         }
     }
@@ -558,6 +526,11 @@ private fun IntroFeaturePill(label: String) {
 
 @Composable
 private fun RootNavigationBar(homeSelected: Boolean, onHome: () -> Unit, onStatistics: () -> Unit) {
+    JourneyNavigation(if (homeSelected) "home" else "stats")
+}
+
+@Composable
+private fun LegacyRootNavigationBar(homeSelected: Boolean, onHome: () -> Unit, onStatistics: () -> Unit) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         NavigationBar {
             NavigationBarItem(

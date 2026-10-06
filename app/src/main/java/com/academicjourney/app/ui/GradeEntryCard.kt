@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -78,9 +79,9 @@ fun GradeEntryCard(course: CourseEntity, program: ProgramEntity, onSave: (Course
     }
     val existingThird = if (andalus) course.theoryGrade else null
 
-    var first by remember(course.id, existingFirst) { mutableStateOf(existingFirst?.cleanText().orEmpty()) }
-    var second by remember(course.id, existingSecond) { mutableStateOf(existingSecond?.cleanText().orEmpty()) }
-    var third by remember(course.id, existingThird) { mutableStateOf(existingThird?.cleanText().orEmpty()) }
+    var first by rememberSaveable(course.id, existingFirst) { mutableStateOf(existingFirst?.cleanText().orEmpty()) }
+    var second by rememberSaveable(course.id, existingSecond) { mutableStateOf(existingSecond?.cleanText().orEmpty()) }
+    var third by rememberSaveable(course.id, existingThird) { mutableStateOf(existingThird?.cleanText().orEmpty()) }
     var error by remember(course.id) { mutableStateOf<String?>(null) }
     var saved by remember(course.id) { mutableStateOf(false) }
     var showClearDialog by remember(course.id) { mutableStateOf(false) }
@@ -343,7 +344,8 @@ fun GradeEntryCard(course: CourseEntity, program: ProgramEntity, onSave: (Course
                             }
                         )
                         error = null
-                        saved = true
+                        // Success is reported by the ViewModel only after the database commit.
+                        saved = false
                     }
                 },
                 modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp)
