@@ -19,6 +19,7 @@ import com.academicjourney.app.data.HighSchoolGradeEntity
 import com.academicjourney.app.data.ProgramEntity
 import com.academicjourney.app.domain.GradeCalculator
 import com.academicjourney.app.domain.HighSchoolCalculator
+import com.academicjourney.app.domain.ProjectGradePolicy
 import com.academicjourney.app.domain.StudentStandingCalculator
 import java.io.ByteArrayOutputStream
 import java.text.DateFormat
@@ -66,7 +67,10 @@ object ReportPrinter {
         program: ProgramEntity,
         courses: List<CourseEntity>
     ): String {
-        val identifierLabel = if (program.gradingScheme == GradeCalculator.SVU_WEIGHTED) "رمز المقرر" else "رقم المقرر"
+        val identifierLabel = if (
+            program.gradingScheme == GradeCalculator.SVU_WEIGHTED ||
+            program.gradingScheme == GradeCalculator.SINGLE_FINAL_GRADE
+        ) "رمز المقرر" else "رقم المقرر"
         val sorted = courses.sortedWith(compareBy<CourseEntity> { it.academicYear }.thenBy { it.semester }.thenBy { it.name })
         val results = sorted.map { GradeCalculator.calculate(it, program) }
         val standing = StudentStandingCalculator.calculate(universityName, program, courses)
@@ -425,20 +429,27 @@ object ReportPrinter {
     }
 
     private fun gradeComponents(course: CourseEntity, program: ProgramEntity): String {
-        val components = when (program.gradingScheme) {
-            GradeCalculator.SVU_WEIGHTED -> listOf(
-                "الوظيفة" to course.assignmentGrade,
-                "الامتحان" to course.examGrade
-            )
-            GradeCalculator.ANDALUS_SPLIT_PRACTICAL_THEORY -> listOf(
-                "أعمال الطالب" to (course.studentWorkGrade ?: course.practicalGrade),
-                "العملي" to (course.practicalExamGrade ?: if (course.practicalGrade != null) 0.0 else null),
-                "النظري" to course.theoryGrade
-            )
-            else -> listOf(
-                "العملي" to course.practicalGrade,
-                "النظري" to course.theoryGrade
-            )
+        val components = if (ProjectGradePolicy.usesSingleProjectGrade(course, program)) {
+            listOf("درجة المشروع" to ProjectGradePolicy.displayedGrade(course, program))
+        } else {
+            when (program.gradingScheme) {
+                GradeCalculator.SVU_WEIGHTED -> listOf(
+                    "الوظيفة" to course.assignmentGrade,
+                    "الامتحان" to course.examGrade
+                )
+                GradeCalculator.SINGLE_FINAL_GRADE -> listOf(
+                    "الدرجة النهائية" to course.directGrade
+                )
+                GradeCalculator.ANDALUS_SPLIT_PRACTICAL_THEORY -> listOf(
+                    "أعمال الطالب" to (course.studentWorkGrade ?: course.practicalGrade),
+                    "العملي" to (course.practicalExamGrade ?: if (course.practicalGrade != null) 0.0 else null),
+                    "النظري" to course.theoryGrade
+                )
+                else -> listOf(
+                    "العملي" to course.practicalGrade,
+                    "النظري" to course.theoryGrade
+                )
+            }
         }
         val entered = components.mapNotNull { (label, value) ->
             value?.let { "${escape(label)}: <b>${formatGrade(it)}</b>" }

@@ -65,6 +65,7 @@ import com.academicjourney.app.data.CourseEntity
 import com.academicjourney.app.data.DiplomacyCurriculum
 import com.academicjourney.app.data.HighSchoolGradeEntity
 import com.academicjourney.app.data.HighSchoolSeedData
+import com.academicjourney.app.data.LatakiaTranslationCurriculum
 import com.academicjourney.app.data.ProgramEntity
 import com.academicjourney.app.data.UniversityEntity
 import com.academicjourney.app.domain.AcademicCelebration
@@ -317,10 +318,10 @@ private fun AcademicCelebrationDialog(
     val message: String
     val accent: Color
     when (event) {
-        is AcademicCelebration.CoursePromotion -> {
-            emoji = "📚✅"
-            title = "مبروك ترفيع المادة!"
-            message = "نجحت في مادة ${event.courseName}. استمر بهذا التقدم الجميل."
+        is AcademicCelebration.CourseSuccess -> {
+            emoji = "✅✨"
+            title = "مبروك النجاح بالمادة!"
+            message = "نجحت في مادة ${event.courseName}. خطوة جديدة أُنجزت بنجاح."
             accent = Color(0xFF146C38)
         }
         is AcademicCelebration.YearPromotion -> {
@@ -370,7 +371,7 @@ private fun AcademicCelebrationDialog(
                         style = MaterialTheme.typography.displayLarge,
                         modifier = Modifier.graphicsLayer {
                             when (event) {
-                                is AcademicCelebration.CoursePromotion -> {
+                                is AcademicCelebration.CourseSuccess -> {
                                     scaleX = pulse
                                     scaleY = pulse
                                     rotationZ = sway
@@ -1159,6 +1160,7 @@ private fun programImage(name: String): Int = when {
     "إدارة الأعمال" in name -> R.drawable.program_mba
     "علوم الحاسوب" in name -> R.drawable.program_cs
     name == "التاريخ" -> R.drawable.program_history
+    LatakiaTranslationCurriculum.isProgramme(name) -> R.drawable.course_language
     "الدولية والدبلوماسية" in name -> R.drawable.program_diplomacy
     "الهندسة الطبية" in name -> R.drawable.program_biomedical
     else -> R.drawable.program_mba
@@ -1173,7 +1175,10 @@ private fun courseImage(course: CourseEntity, program: ProgramEntity): Int {
             R.drawable.course_math
         listOf("فيزياء", "الفيزياء", "ميكانيك", "ترموديناميك", "كهرومغناطيس").any { it in name } ->
             R.drawable.course_physics
-        listOf("اللغة", "إنكليز", "انكليز", "فرنسي", "مصطلحات").any { it in name } ->
+        listOf(
+            "اللغة", "إنكليز", "انكليز", "فرنسي", "مصطلحات", "ترجمة", "القواعد",
+            "الكتابة", "القراءة", "المعاجم", "الصوتيات", "الاستماع", "لغويات"
+        ).any { it in name } ->
             R.drawable.course_language
         listOf("إعلام", "صحافة", "اتصال", "إذاعة", "تلفزيون", "سينما", "تحرير").any { it in name } ->
             R.drawable.program_media
@@ -1422,6 +1427,8 @@ private fun ProgramScreen(
                                     "طريقة الحساب: ${program.assignmentWeight.toInt()}% وظيفة + ${program.examWeight.toInt()}% امتحان. كل كسر يُجبر إلى العدد الصحيح الأعلى."
                                 GradeCalculator.ANDALUS_SPLIT_PRACTICAL_THEORY ->
                                     "طريقة الحساب: أعمال الطالب + الامتحان العملي + النظري، والمجموع النهائي بين 0 و100، وكل كسر يُجبر للأعلى."
+                                GradeCalculator.SINGLE_FINAL_GRADE ->
+                                    "طريقة الحساب: درجة نهائية واحدة من 100، والنجاح من ${program.passingGrade.toInt()}، وكل كسر يُجبر للأعلى."
                                 else -> "طريقة الحساب: العملي + النظري، والمجموع النهائي بين 0 و100، وكل كسر يُجبر للأعلى."
                             },
                             style = MaterialTheme.typography.bodySmall,
@@ -1487,6 +1494,14 @@ private fun ProgramScreen(
                 item(span = { GridItemSpan(maxLineSpan) }) {
                     AcademicNoticeCard(
                         "أرقام مقررات الدراسات الدولية والدبلوماسية (510–557) مثبتة تلقائيًا وفق ملف التسجيل 2025–2026، ولا تحتاج إلى إدخال يدوي."
+                    )
+                }
+            }
+            if (LatakiaTranslationCurriculum.isProgramme(program.name)) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    AcademicNoticeCard(
+                        "برنامج الترجمة في اللغة الإنكليزية: لكل مقرر حقل درجة نهائية واحد، " +
+                            "وحد النجاح 50/100. رُموز المقررات وتقسيم ف1 وف2 مثبتان وفق الجدول المرفق."
                     )
                 }
             }
@@ -1712,7 +1727,11 @@ private fun SemesterImageCard(
                 )
                 Column(Modifier.align(Alignment.BottomStart).padding(12.dp)) {
                     Text(englishSemester(semester), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black, color = Color.White, maxLines = 1)
-                    Text("الفصل ${if (semester == 1) "الأول" else "الثاني"}", style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.9f))
+                    Text(
+                        "ف$semester • الفصل ${if (semester == 1) "الأول" else "الثاني"}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White.copy(alpha = 0.9f)
+                    )
                 }
             }
             Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -2314,7 +2333,10 @@ private fun reportPdfFileName(label: String): String {
     return "AcademicJourney-$safeLabel-$stamp.pdf"
 }
 private fun courseIdentifierLabel(program: ProgramEntity): String =
-    if (program.gradingScheme == GradeCalculator.SVU_WEIGHTED) "رمز المقرر" else "رقم المقرر"
+    if (
+        program.gradingScheme == GradeCalculator.SVU_WEIGHTED ||
+        program.gradingScheme == GradeCalculator.SINGLE_FINAL_GRADE
+    ) "رمز المقرر" else "رقم المقرر"
 private fun arabicOrdinal(year: Int): String = when (year) { 1 -> "الأولى"; 2 -> "الثانية"; 3 -> "الثالثة"; 4 -> "الرابعة"; 5 -> "الخامسة"; else -> year.toString() }
 
 
