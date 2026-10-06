@@ -12,9 +12,12 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         UniversityEntity::class,
         ProgramEntity::class,
         CourseEntity::class,
-        HighSchoolGradeEntity::class
+        HighSchoolGradeEntity::class,
+        GradeChangeEntity::class,
+        AcademicEventEntity::class,
+        SemesterArchiveEntity::class
     ],
-    version = 8,
+    version = 9,
     exportSchema = false
 )
 abstract class AcademicDatabase : RoomDatabase() {
@@ -298,6 +301,18 @@ abstract class AcademicDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE CourseEntity ADD COLUMN isCurrentSemester INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("CREATE TABLE IF NOT EXISTS GradeChangeEntity (id TEXT NOT NULL PRIMARY KEY, targetKind TEXT NOT NULL, targetId INTEGER NOT NULL, title TEXT NOT NULL, beforeJson TEXT NOT NULL, afterJson TEXT NOT NULL, createdAt INTEGER NOT NULL, undone INTEGER NOT NULL)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_GradeChangeEntity_targetId ON GradeChangeEntity (targetId)")
+                db.execSQL("CREATE TABLE IF NOT EXISTS AcademicEventEntity (id TEXT NOT NULL PRIMARY KEY, courseId INTEGER NOT NULL, kind TEXT NOT NULL, title TEXT NOT NULL, place TEXT NOT NULL, startsAt INTEGER NOT NULL, reminderMinutes INTEGER, notifiedAt INTEGER, FOREIGN KEY(courseId) REFERENCES CourseEntity(id) ON UPDATE NO ACTION ON DELETE CASCADE)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_AcademicEventEntity_courseId ON AcademicEventEntity (courseId)")
+                db.execSQL("CREATE TABLE IF NOT EXISTS SemesterArchiveEntity (id TEXT NOT NULL PRIMARY KEY, programId INTEGER NOT NULL, academicYear INTEGER NOT NULL, semester INTEGER NOT NULL, label TEXT NOT NULL, createdAt INTEGER NOT NULL, snapshotJson TEXT NOT NULL)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_SemesterArchiveEntity_programId ON SemesterArchiveEntity (programId)")
+            }
+        }
+
         fun get(context: Context): AcademicDatabase = INSTANCE ?: synchronized(this) {
             INSTANCE ?: Room.databaseBuilder(
                 context.applicationContext,
@@ -310,7 +325,8 @@ abstract class AcademicDatabase : RoomDatabase() {
                     MIGRATION_4_5,
                     MIGRATION_5_6,
                     MIGRATION_6_7,
-                    MIGRATION_7_8
+                    MIGRATION_7_8,
+                    MIGRATION_8_9
                 )
                 .build()
                 .also { INSTANCE = it }

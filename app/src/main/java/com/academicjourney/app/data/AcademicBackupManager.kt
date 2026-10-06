@@ -19,7 +19,7 @@ import java.util.TimeZone
  */
 object AcademicBackupManager {
     private const val FORMAT_ID = "com.academicjourney.app.backup"
-    private const val SCHEMA_VERSION = 1
+    private const val SCHEMA_VERSION = 2
     private const val MAX_BACKUP_CHARACTERS = 20_000_000
 
     data class RestorePlan(
@@ -27,7 +27,14 @@ object AcademicBackupManager {
         val highSchoolGrades: List<HighSchoolGradeEntity>,
         val restoredCourseCount: Int,
         val restoredHighSchoolCount: Int,
-        val skippedCount: Int
+        val skippedCount: Int,
+        val createdAt: String,
+        val differences: List<String>,
+        val originalCourses: List<CourseEntity>,
+        val originalHighSchool: List<HighSchoolGradeEntity>,
+        val events: List<AcademicEventEntity>,
+        val history: List<GradeChangeEntity>,
+        val archives: List<SemesterArchiveEntity>
     )
 
     fun write(
@@ -36,7 +43,10 @@ object AcademicBackupManager {
         universities: List<UniversityEntity>,
         programs: List<ProgramEntity>,
         courses: List<CourseEntity>,
-        highSchoolGrades: List<HighSchoolGradeEntity>
+        highSchoolGrades: List<HighSchoolGradeEntity>,
+        events: List<AcademicEventEntity> = emptyList(),
+        history: List<GradeChangeEntity> = emptyList(),
+        archives: List<SemesterArchiveEntity> = emptyList()
     ) {
         val universitiesById = universities.associateBy { it.id }
         val programsById = programs.associateBy { it.id }
@@ -49,6 +59,9 @@ object AcademicBackupManager {
                 ?: error("تعذر العثور على جامعة المقرر ${course.name}.")
 
             courseItems.put(JSONObject().apply {
+                put("sourceId", course.id)
+                put("sourceProgramId", course.programId)
+                put("isCurrentSemester", course.isCurrentSemester)
                 put("university", university.name)
                 put("program", program.name)
                 put("courseName", course.name)
@@ -72,6 +85,7 @@ object AcademicBackupManager {
         val highSchoolItems = JSONArray()
         highSchoolGrades.forEach { item ->
             highSchoolItems.put(JSONObject().apply {
+                put("sourceId", item.id)
                 put("branch", item.branch)
                 put("subject", item.subject)
                 putNullable("grade", item.grade)
@@ -88,6 +102,7 @@ object AcademicBackupManager {
             put("createdAtUtc", utcTimestamp())
             put("courses", courseItems)
             put("highSchoolGrades", highSchoolItems)
+            put("journey", JourneyBackup.encode(events, history, archives))
         }
 
         context.contentResolver.openOutputStream(uri, "wt")?.use { stream ->
@@ -104,7 +119,17 @@ object AcademicBackupManager {
         currentHighSchoolGrades: List<HighSchoolGradeEntity>
     ): RestorePlan {
         val json = context.contentResolver.openInputStream(uri)?.use { stream ->
-            stream.reader(Charsets.UTF_8).buffered().use { it.readText() }
+            stream.reader(Charsets.UTF_8).buffered().use { reader ->
+                val buffer = CharArray(8192)
+                val text = StringBuilder()
+                while (true) {
+                    val n = reader.read(buffer)
+                    if (n < 0) break
+                    require(text.length + n <= MAX_BACKUP_CHARACTERS) { "ملف النسخة الاحتياطية أكبر من الحد المسموح." }
+                    text.append(buffer, 0, n)
+                }
+                text.toString()
+            }
         } ?: error("تعذر فتح ملف النسخة الاحتياطية.")
         require(json.length <= MAX_BACKUP_CHARACTERS) { "ملف النسخة الاحتياطية أكبر من الحد المسموح." }
 
@@ -126,6 +151,9 @@ object AcademicBackupManager {
             CourseContext(course, university.name, program.name)
         }
         val restoredCourses = linkedMapOf<Long, CourseEntity>()
+        val courseIds = mutableMapOf<Long, Long>()
+        val programIds = mutableMapOf<Long, Long>()
+        val schoolIds = mutableMapOf<Long, Long>()
         var skipped = 0
 
         val courseItems = root.optJSONArray("courses") ?: JSONArray()
@@ -158,6 +186,8 @@ object AcademicBackupManager {
                 skipped++
                 continue
             }
+            if (item.has("sourceId")) courseIds[item.getLong("sourceId")] = current.id
+            if (item.has("sourceProgramId")) programIds[item.getLong("sourceProgramId")] = current.programId
 
             item.optString("code", current.code).also {
                 require(it.length <= 120) { "رقم/رمز مقرر أطول من الحد المسموح." }
@@ -173,8 +203,10 @@ object AcademicBackupManager {
                 studentWorkGrade = item.nullableGrade("studentWorkGrade"),
                 practicalExamGrade = item.nullableGrade("practicalExamGrade"),
                 directGrade = item.nullableGrade("directGrade"),
-                notes = notes
+                notes = notes,
+                isCurrentSemester = if (item.has("isCurrentSemester")) item.getBoolean("isCurrentSemester") else current.isCurrentSemester
             )
+            JourneyBackup.validateCourse(restoredCourses.getValue(current.id), programsById.getValue(current.programId))
         }
 
         val highSchoolByIdentity = currentHighSchoolGrades.associateBy { it.branch to it.subject }
@@ -196,14 +228,31 @@ object AcademicBackupManager {
                 "درجة ${current.subject} خارج المجال 0–${current.maxGrade}."
             }
             restoredHighSchool[current.id] = current.copy(grade = grade)
+            if (item.has("sourceId")) schoolIds[item.getLong("sourceId")] = current.id
         }
 
+        val extras = JourneyBackup.decode(root.optJSONObject("journey"), courseIds, programIds, schoolIds, currentCourses, currentHighSchoolGrades, programs)
+        val differences = restoredCourses.values.flatMap { updated ->
+            val old = currentCourses.first { it.id == updated.id }
+            GradeSnapshot.differences(GradeSnapshot.encode(old), GradeSnapshot.encode(updated)).map { "${old.name} • $it" } +
+                if (old.isCurrentSemester != updated.isCurrentSemester) listOf("${old.name} • فصلي الحالي: ${if (updated.isCurrentSemester) "إضافة" else "إزالة"}") else emptyList()
+        } + restoredHighSchool.values.flatMap { updated ->
+            val old = currentHighSchoolGrades.first { it.id == updated.id }
+            GradeSnapshot.differences(GradeSnapshot.highSchool(old.grade), GradeSnapshot.highSchool(updated.grade)).map { "${old.subject} • $it" }
+        }
         return RestorePlan(
             courses = restoredCourses.values.toList(),
             highSchoolGrades = restoredHighSchool.values.toList(),
             restoredCourseCount = restoredCourses.size,
             restoredHighSchoolCount = restoredHighSchool.size,
-            skippedCount = skipped
+            skippedCount = skipped + extras.skipped,
+            createdAt = root.optString("createdAtUtc", "غير محدد"),
+            differences = differences,
+            originalCourses = currentCourses,
+            originalHighSchool = currentHighSchoolGrades,
+            events = extras.events,
+            history = extras.history,
+            archives = extras.archives
         )
     }
 

@@ -2,6 +2,23 @@ package com.academicjourney.app.data
 import androidx.room.*
 import kotlinx.coroutines.flow.Flow
 @Dao interface AcademicDao {
+@Query("SELECT * FROM GradeChangeEntity ORDER BY createdAt DESC, id") fun observeHistory():Flow<List<GradeChangeEntity>>
+@Query("SELECT * FROM AcademicEventEntity ORDER BY startsAt, id") fun observeEvents():Flow<List<AcademicEventEntity>>
+@Query("SELECT * FROM SemesterArchiveEntity ORDER BY createdAt DESC, id") fun observeArchives():Flow<List<SemesterArchiveEntity>>
+@Query("SELECT * FROM GradeChangeEntity ORDER BY createdAt DESC, id") suspend fun getHistory():List<GradeChangeEntity>
+@Query("SELECT * FROM AcademicEventEntity ORDER BY startsAt, id") suspend fun getEvents():List<AcademicEventEntity>
+@Query("SELECT * FROM SemesterArchiveEntity ORDER BY createdAt DESC, id") suspend fun getArchives():List<SemesterArchiveEntity>
+@Query("SELECT * FROM CourseEntity WHERE id = :id") suspend fun getCourse(id:Long):CourseEntity?
+@Query("SELECT * FROM HighSchoolGradeEntity WHERE id = :id") suspend fun getHighSchoolGrade(id:Long):HighSchoolGradeEntity?
+@Query("SELECT * FROM GradeChangeEntity WHERE id = :id") suspend fun getChange(id:String):GradeChangeEntity?
+@Query("SELECT * FROM AcademicEventEntity WHERE id = :id") suspend fun getEvent(id:String):AcademicEventEntity?
+@Insert(onConflict = OnConflictStrategy.IGNORE) suspend fun insertHistory(items:List<GradeChangeEntity>)
+@Insert(onConflict = OnConflictStrategy.IGNORE) suspend fun insertEvents(items:List<AcademicEventEntity>)
+@Insert(onConflict = OnConflictStrategy.IGNORE) suspend fun insertArchives(items:List<SemesterArchiveEntity>)
+@Upsert suspend fun saveEvent(item:AcademicEventEntity)
+@Query("DELETE FROM AcademicEventEntity WHERE id = :id") suspend fun deleteEvent(id:String)
+@Query("UPDATE GradeChangeEntity SET undone = 1 WHERE id = :id") suspend fun markUndone(id:String)
+@Query("UPDATE CourseEntity SET isCurrentSemester = :selected WHERE id = :id") suspend fun setCurrentSemester(id:Long, selected:Boolean)
 @Query("SELECT * FROM UniversityEntity ORDER BY name") fun observeUniversities():Flow<List<UniversityEntity>>
 @Query("SELECT * FROM ProgramEntity ORDER BY name") fun observePrograms():Flow<List<ProgramEntity>>
 @Query("SELECT * FROM CourseEntity ORDER BY programId, academicYear, semester, name") fun observeCourses():Flow<List<CourseEntity>>

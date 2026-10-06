@@ -21,7 +21,43 @@ data class CourseEntity(
     val practicalExamGrade: Double? = null,
     val creditHours: Int? = null,
     @ColumnInfo(defaultValue = "0") val passedWithoutGrade: Boolean = false,
-    val directGrade: Double? = null
+    val directGrade: Double? = null,
+    @ColumnInfo(defaultValue = "0") val isCurrentSemester: Boolean = false
+)
+
+@Entity(indices = [Index("targetId")])
+data class GradeChangeEntity(
+    @PrimaryKey val id: String,
+    val targetKind: String,
+    val targetId: Long,
+    val title: String,
+    val beforeJson: String,
+    val afterJson: String,
+    val createdAt: Long,
+    val undone: Boolean = false
+)
+
+@Entity(foreignKeys = [ForeignKey(entity = CourseEntity::class, parentColumns = ["id"], childColumns = ["courseId"], onDelete = ForeignKey.CASCADE)], indices = [Index("courseId")])
+data class AcademicEventEntity(
+    @PrimaryKey val id: String,
+    val courseId: Long,
+    val kind: String,
+    val title: String,
+    val place: String,
+    val startsAt: Long,
+    val reminderMinutes: Int? = null,
+    val notifiedAt: Long? = null
+)
+
+@Entity(indices = [Index("programId")])
+data class SemesterArchiveEntity(
+    @PrimaryKey val id: String,
+    val programId: Long,
+    val academicYear: Int,
+    val semester: Int,
+    val label: String,
+    val createdAt: Long,
+    val snapshotJson: String
 )
 
 @Entity(indices = [Index(value = ["branch", "subject"], unique = true)])
