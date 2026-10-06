@@ -19,6 +19,7 @@ object GradeCalculator {
     const val SVU_WEIGHTED = "SVU_WEIGHTED"
     const val PRACTICAL_THEORY = "PRACTICAL_THEORY"
     const val ANDALUS_SPLIT_PRACTICAL_THEORY = "ANDALUS_SPLIT_PRACTICAL_THEORY"
+    const val SINGLE_FINAL_GRADE = "SINGLE_FINAL_GRADE"
 
     fun calculate(course: CourseEntity, program: ProgramEntity): GradeResult {
         if (course.passedWithoutGrade) {
@@ -66,6 +67,12 @@ object GradeCalculator {
                     return GradeResult(null, null)
                 }
                 studentWork + practicalExam + theory
+            }
+
+            SINGLE_FINAL_GRADE -> {
+                val grade = course.directGrade ?: return GradeResult(null, null)
+                if (!valid(grade)) return GradeResult(null, null)
+                grade
             }
 
             else -> return GradeResult(null, null)
@@ -152,6 +159,9 @@ object GradeCalculator {
 
     fun validateProjectGrade(grade: Double?): String? =
         if (grade != null && !valid(grade)) "يجب أن تكون درجة المشروع بين 0 و100." else null
+
+    fun validateDirectGrade(grade: Double?): String? =
+        if (grade != null && !valid(grade)) "يجب أن تكون الدرجة النهائية بين 0 و100." else null
 
     /** Uses credit-hour weighting when every graded course has supplied credit hours. */
     fun average(courses: List<CourseEntity>, program: ProgramEntity): Double? {

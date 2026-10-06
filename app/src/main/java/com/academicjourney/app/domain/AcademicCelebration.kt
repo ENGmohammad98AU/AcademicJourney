@@ -4,7 +4,7 @@ import com.academicjourney.app.data.CourseEntity
 import com.academicjourney.app.data.ProgramEntity
 
 sealed interface AcademicCelebration {
-    data class CoursePromotion(val courseName: String) : AcademicCelebration
+    data class CourseSuccess(val courseName: String) : AcademicCelebration
     data class YearPromotion(val year: Int) : AcademicCelebration
     data class Graduation(val programName: String) : AcademicCelebration
 }
@@ -39,7 +39,7 @@ object AcademicCelebrationDetector {
                 after.currentYear != null &&
                 after.currentYear > before.currentYear ->
                 AcademicCelebration.YearPromotion(after.currentYear)
-            else -> AcademicCelebration.CoursePromotion(updatedCourse.name)
+            else -> AcademicCelebration.CourseSuccess(updatedCourse.name)
         }
     }
 }
