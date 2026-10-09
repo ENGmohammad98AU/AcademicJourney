@@ -18,8 +18,8 @@ android {
         applicationId = "com.academicjourney.app"
         minSdk = 24
         targetSdk = 35
-        versionCode = 21
-        versionName = "1.5.1"
+        versionCode = 22
+        versionName = "1.5.2"
     }
 
     buildFeatures {
@@ -52,6 +52,7 @@ dependencies {
 
     implementation("androidx.room:room-runtime:2.7.1")
     implementation("androidx.room:room-ktx:2.7.1")
+    implementation("com.tom-roush:pdfbox-android:2.0.27.0")
     ksp("androidx.room:room-compiler:2.7.1")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
