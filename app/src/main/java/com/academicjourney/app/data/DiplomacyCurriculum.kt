@@ -1,5 +1,7 @@
 package com.academicjourney.app.data
 
+import org.json.JSONObject
+
 /**
  * Official course numbers for the International Studies and Diplomacy programme.
  *
@@ -8,6 +10,29 @@ package com.academicjourney.app.data
  * number in place without replacing rows or losing grades and notes.
  */
 object DiplomacyCurriculum {
+    const val GRADING_SCHEME = "SINGLE_FINAL_GRADE"
+    const val PASSING_GRADE = 50.0
+
+    /** Only for upgrading pre-1.5.1 data; never infer a final grade from one component. */
+    fun legacyTotal(practical: Double?, theory: Double?): Double? {
+        if (practical == null || theory == null) return null
+        if (practical !in 0.0..100.0 || theory !in 0.0..100.0) return null
+        return (practical + theory).takeIf { it <= 100.0 }
+    }
+
+    fun upgradeLegacyCourse(course: CourseEntity): CourseEntity = course.copy(
+        directGrade = course.directGrade ?: legacyTotal(course.practicalGrade, course.theoryGrade)
+    )
+
+    /** Upgrade editable history with the same mapping so safe undo still matches migrated rows. */
+    fun upgradeLegacySnapshot(json: String): String {
+        val value = JSONObject(json)
+        if (!value.isNull("directGrade")) return json
+        fun component(key: String) = if (value.isNull(key)) null else value.getDouble(key)
+        val total = legacyTotal(component("practicalGrade"), component("theoryGrade")) ?: return json
+        return value.put("directGrade", total).toString()
+    }
+
     val courseNumberByName: LinkedHashMap<String, String> = linkedMapOf(
         "مدخل إلى علم القانون" to "510",
         "المدخل إلى علم العلاقات الدولية" to "511",

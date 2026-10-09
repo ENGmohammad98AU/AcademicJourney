@@ -3,6 +3,7 @@ package com.academicjourney.app.data
 import android.content.Context
 import android.net.Uri
 import com.academicjourney.app.BuildConfig
+import com.academicjourney.app.domain.GradeCalculator
 import org.json.JSONArray
 import org.json.JSONObject
 import java.text.SimpleDateFormat
@@ -19,7 +20,8 @@ import java.util.TimeZone
  */
 object AcademicBackupManager {
     private const val FORMAT_ID = "com.academicjourney.app.backup"
-    private const val SCHEMA_VERSION = 2
+    // Version 3 distinguishes intentional empty direct grades from legacy two-field grades.
+    private const val SCHEMA_VERSION = 3
     private const val MAX_BACKUP_CHARACTERS = 20_000_000
 
     data class RestorePlan(
@@ -206,7 +208,15 @@ object AcademicBackupManager {
                 notes = notes,
                 isCurrentSemester = if (item.has("isCurrentSemester")) item.getBoolean("isCurrentSemester") else current.isCurrentSemester
             )
-            JourneyBackup.validateCourse(restoredCourses.getValue(current.id), programsById.getValue(current.programId))
+            val currentProgram = programsById.getValue(current.programId)
+            if (schemaVersion < 3 && DiplomacyCurriculum.isProgramme(currentProgram.name)) {
+                val old = restoredCourses.getValue(current.id)
+                require(GradeCalculator.validatePartialPracticalTheory(old.practicalGrade, old.theoryGrade) == null) {
+                    "${current.name}: مجموع العملي والنظري في النسخة القديمة غير صالح."
+                }
+                restoredCourses[current.id] = DiplomacyCurriculum.upgradeLegacyCourse(old)
+            }
+            JourneyBackup.validateCourse(restoredCourses.getValue(current.id), currentProgram)
         }
 
         val highSchoolByIdentity = currentHighSchoolGrades.associateBy { it.branch to it.subject }
@@ -231,7 +241,7 @@ object AcademicBackupManager {
             if (item.has("sourceId")) schoolIds[item.getLong("sourceId")] = current.id
         }
 
-        val extras = JourneyBackup.decode(root.optJSONObject("journey"), courseIds, programIds, schoolIds, currentCourses, currentHighSchoolGrades, programs)
+        val extras = JourneyBackup.decode(root.optJSONObject("journey"), courseIds, programIds, schoolIds, currentCourses, currentHighSchoolGrades, programs, upgradeLegacyDiplomacy = schemaVersion < 3)
         val differences = restoredCourses.values.flatMap { updated ->
             val old = currentCourses.first { it.id == updated.id }
             GradeSnapshot.differences(GradeSnapshot.encode(old), GradeSnapshot.encode(updated)).map { "${old.name} • $it" } +

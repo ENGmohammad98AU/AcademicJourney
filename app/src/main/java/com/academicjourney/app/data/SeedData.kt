@@ -233,7 +233,7 @@ LatakiaTranslationCurriculum.courses.forEach { course ->
         )
     )
 }
-val p6=dao.insertProgram(ProgramEntity(universityId=u3,name="الدراسات الدولية والدبلوماسية – التعليم المفتوح",degreeType="إجازة",gradingScheme="PRACTICAL_THEORY",assignmentWeight=0.0,examWeight=0.0,passingGrade=50.0))
+val p6=dao.insertProgram(ProgramEntity(universityId=u3,name="الدراسات الدولية والدبلوماسية – التعليم المفتوح",degreeType="إجازة",gradingScheme=DiplomacyCurriculum.GRADING_SCHEME,assignmentWeight=0.0,examWeight=0.0,passingGrade=DiplomacyCurriculum.PASSING_GRADE))
 dao.insertCourse(CourseEntity(programId=p6,name="مدخل إلى علم القانون",code="510",language="",academicYear=1,semester=1))
 dao.insertCourse(CourseEntity(programId=p6,name="المدخل إلى علم العلاقات الدولية",code="511",language="",academicYear=1,semester=1))
 dao.insertCourse(CourseEntity(programId=p6,name="تاريخ الحضارة العام",code="513",language="",academicYear=1,semester=1))

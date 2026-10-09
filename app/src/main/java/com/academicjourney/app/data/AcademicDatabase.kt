@@ -17,7 +17,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         AcademicEventEntity::class,
         SemesterArchiveEntity::class
     ],
-    version = 9,
+    version = 10,
     exportSchema = false
 )
 abstract class AcademicDatabase : RoomDatabase() {
@@ -313,6 +313,35 @@ abstract class AcademicDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                val programmes = "SELECT id FROM ProgramEntity WHERE name LIKE '%الدراسات الدولية%' AND name LIKE '%الدبلوماسية%' AND gradingScheme = 'PRACTICAL_THEORY'"
+                // Keep the original components, IDs, notes, dates and archive snapshots intact.
+                // Raw sums retain the existing ceiling rule, including fractions such as 76.1.
+                db.execSQL("""
+                    UPDATE CourseEntity SET directGrade = practicalGrade + theoryGrade
+                    WHERE programId IN ($programmes) AND directGrade IS NULL
+                      AND practicalGrade BETWEEN 0 AND 100 AND theoryGrade BETWEEN 0 AND 100
+                      AND practicalGrade + theoryGrade <= 100
+                """.trimIndent())
+                val history = mutableListOf<Array<Any>>()
+                db.query("SELECT id, beforeJson, afterJson FROM GradeChangeEntity WHERE targetKind = 'COURSE' AND targetId IN (SELECT id FROM CourseEntity WHERE programId IN ($programmes))").use { cursor ->
+                    while (cursor.moveToNext()) {
+                        val before = cursor.getString(1)
+                        val after = cursor.getString(2)
+                        history.add(arrayOf(
+                            runCatching { DiplomacyCurriculum.upgradeLegacySnapshot(before) }.getOrDefault(before),
+                            runCatching { DiplomacyCurriculum.upgradeLegacySnapshot(after) }.getOrDefault(after),
+                            cursor.getString(0)
+                        ))
+                    }
+                }
+                history.forEach { db.execSQL("UPDATE GradeChangeEntity SET beforeJson = ?, afterJson = ? WHERE id = ?", it) }
+                db.execSQL("UPDATE ProgramEntity SET gradingScheme = ?, assignmentWeight = 0, examWeight = 0, passingGrade = ? WHERE id IN ($programmes)",
+                    arrayOf(DiplomacyCurriculum.GRADING_SCHEME, DiplomacyCurriculum.PASSING_GRADE))
+            }
+        }
+
         fun get(context: Context): AcademicDatabase = INSTANCE ?: synchronized(this) {
             INSTANCE ?: Room.databaseBuilder(
                 context.applicationContext,
@@ -326,7 +355,8 @@ abstract class AcademicDatabase : RoomDatabase() {
                     MIGRATION_5_6,
                     MIGRATION_6_7,
                     MIGRATION_7_8,
-                    MIGRATION_8_9
+                    MIGRATION_8_9,
+                    MIGRATION_9_10
                 )
                 .build()
                 .also { INSTANCE = it }

@@ -31,7 +31,7 @@ object JourneyBackup {
 
     fun decode(root: JSONObject?, courseIds: Map<Long, Long>, programIds: Map<Long, Long>,
         schoolIds: Map<Long, Long>, courses: List<CourseEntity>, school: List<HighSchoolGradeEntity>,
-        programs: List<ProgramEntity>): Extras {
+        programs: List<ProgramEntity>, upgradeLegacyDiplomacy: Boolean = false): Extras {
         if (root == null) return Extras(emptyList(), emptyList(), emptyList(), 0)
         var skipped = 0
         fun objects(key: String): List<JSONObject> {
@@ -56,11 +56,19 @@ object JourneyBackup {
             require(kind in listOf("COURSE", "SCHOOL"))
             val targetId = (if (kind == "COURSE") courseIds else schoolIds)[o.getLong("targetId")]
                 ?: run { skipped++; return@mapNotNull null }
-            val before = small(o, "beforeJson", 60_000)
-            val after = small(o, "afterJson", 60_000)
+            var before = small(o, "beforeJson", 60_000)
+            var after = small(o, "afterJson", 60_000)
             if (kind == "COURSE") {
                 val c = courses.first { it.id == targetId }
                 val p = programs.first { it.id == c.programId }
+                if (upgradeLegacyDiplomacy && DiplomacyCurriculum.isProgramme(p.name)) {
+                    listOf(before, after).forEach { json ->
+                        val legacy = GradeSnapshot.apply(c, json)
+                        require(GradeCalculator.validatePartialPracticalTheory(legacy.practicalGrade, legacy.theoryGrade) == null)
+                    }
+                    before = DiplomacyCurriculum.upgradeLegacySnapshot(before)
+                    after = DiplomacyCurriculum.upgradeLegacySnapshot(after)
+                }
                 validateCourse(GradeSnapshot.apply(c, before), p)
                 validateCourse(GradeSnapshot.apply(c, after), p)
             } else {
