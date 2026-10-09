@@ -40,7 +40,7 @@ class JourneyMigrationTests {
             db.version = 8
         }
         val db = Room.databaseBuilder(context, AcademicDatabase::class.java, name)
-            .addMigrations(AcademicDatabase.MIGRATION_8_9).allowMainThreadQueries().build()
+            .addMigrations(AcademicDatabase.MIGRATION_8_9, AcademicDatabase.MIGRATION_9_10).allowMainThreadQueries().build()
         try {
             val dao = db.academicDao()
             val c = dao.getCourse(3)!!
@@ -80,6 +80,74 @@ class JourneyMigrationTests {
             assertEquals(1, plan.differences.size)
             assertEquals(listOf(c), plan.originalCourses)
             assertTrue(plan.events.isEmpty())
+        } finally { file.delete() }
+    }
+
+    @Test fun diplomacyMigrationPreservesHistoryDatesArchivesAndOtherProgrammes() = runBlocking {
+        val name = "diplomacy-${UUID.randomUUID()}.db"
+        val oldProgramme = ProgramEntity(2, 1, "الدراسات الدولية والدبلوماسية – التعليم المفتوح",
+            gradingScheme = "PRACTICAL_THEORY", passingGrade = 50.0)
+        val complete = CourseEntity(3, 2, "مقرر كامل", "510", academicYear = 1, semester = 1,
+            practicalGrade = 20.0, theoryGrade = 56.1, notes = "ملاحظة محفوظة", isCurrentSemester = true)
+        val partial = complete.copy(id = 4, name = "مقرر جزئي", code = "511", practicalGrade = null, theoryGrade = 60.0)
+        val other = complete.copy(id = 6, programId = 5, directGrade = null)
+        val before = complete.copy(theoryGrade = null)
+        val history = GradeChangeEntity(UUID.randomUUID().toString(), "COURSE", 3, "حفظ", GradeSnapshot.encode(before), GradeSnapshot.encode(complete), 1000)
+        val event = AcademicEventEntity(UUID.randomUUID().toString(), 3, "EXAM", "امتحان", "قاعة", 1_900_000_000_000, 60)
+        val archive = SemesterSnapshots.create(oldProgramme, listOf(complete), 1, 1, "أرشيف ثابت")
+        // v9 and v10 have identical tables; only curriculum data and its undo snapshots change.
+        val initialDb = Room.databaseBuilder(context, AcademicDatabase::class.java, name).allowMainThreadQueries().build()
+        try {
+            val dao = initialDb.academicDao()
+            dao.insertUniversity(UniversityEntity(1, "جامعة دمشق"))
+            dao.insertProgram(oldProgramme)
+            dao.insertProgram(oldProgramme.copy(id = 5, name = "التاريخ"))
+            listOf(complete, partial, other).forEach { dao.insertCourse(it) }
+            dao.insertHistory(listOf(history)); dao.saveEvent(event); dao.insertArchives(listOf(archive))
+        } finally { initialDb.close() }
+        SQLiteDatabase.openDatabase(context.getDatabasePath(name).path, null, SQLiteDatabase.OPEN_READWRITE).use { it.version = 9 }
+        val db = Room.databaseBuilder(context, AcademicDatabase::class.java, name)
+            .addMigrations(AcademicDatabase.MIGRATION_9_10).allowMainThreadQueries().build()
+        try {
+            val dao = db.academicDao()
+            val migrated = dao.getCourse(3)!!
+            assertEquals(76.1, migrated.directGrade!!, 0.0001)
+            assertEquals(complete, migrated.copy(directGrade = null))
+            assertEquals(partial, dao.getCourse(4))
+            assertEquals(other, dao.getCourse(6))
+            assertEquals("SINGLE_FINAL_GRADE", dao.getPrograms().first { it.id == 2L }.gradingScheme)
+            assertEquals("PRACTICAL_THEORY", dao.getPrograms().first { it.id == 5L }.gradingScheme)
+            val change = dao.getHistory().single()
+            assertTrue(GradeSnapshot.same(change.afterJson, GradeSnapshot.encode(migrated)))
+            assertEquals(before, GradeSnapshot.apply(migrated, change.beforeJson))
+            assertEquals(listOf(event), dao.getEvents())
+            assertEquals(listOf(archive), dao.getArchives())
+        } finally { db.close(); context.deleteDatabase(name) }
+    }
+
+    @Test fun oldDiplomacyBackupUpgradesMarksAndHistoryButNewBackupKeepsEmptyFinalGrade() {
+        val u = UniversityEntity(1, "جامعة دمشق")
+        val p = ProgramEntity(2, 1, "الدراسات الدولية والدبلوماسية – التعليم المفتوح",
+            gradingScheme = DiplomacyCurriculum.GRADING_SCHEME, passingGrade = 50.0)
+        val c = CourseEntity(3, 2, "مقرر", "510", academicYear = 1, semester = 1,
+            practicalGrade = 20.0, theoryGrade = 56.1, notes = "ملاحظة")
+        val partial = c.copy(id = 4, code = "511", name = "جزئي", theoryGrade = null)
+        val h = GradeChangeEntity(UUID.randomUUID().toString(), "COURSE", 3, "حفظ",
+            GradeSnapshot.encode(c.copy(theoryGrade = null)), GradeSnapshot.encode(c), 1000)
+        val file = File.createTempFile("diplomacy-backup", ".json", context.cacheDir)
+        fun plan() = AcademicBackupManager.readAndPlan(context, Uri.fromFile(file), listOf(u), listOf(p), listOf(c, partial), emptyList())
+        try {
+            AcademicBackupManager.write(context, Uri.fromFile(file), listOf(u), listOf(p), listOf(c, partial), emptyList(), history = listOf(h))
+            val current = file.readText()
+            assertEquals(3, JSONObject(current).getInt("schemaVersion"))
+            assertNull(plan().courses.first { it.id == 3L }.directGrade)
+            file.writeText(JSONObject(current).put("schemaVersion", 2).toString())
+            val old = plan()
+            val restored = old.courses.first { it.id == 3L }
+            assertEquals(76.1, restored.directGrade!!, 0.0001)
+            assertTrue(GradeSnapshot.same(old.history.single().afterJson, GradeSnapshot.encode(restored)))
+            assertEquals(partial, old.courses.first { it.id == 4L })
+            assertEquals("ملاحظة", restored.notes)
         } finally { file.delete() }
     }
 }

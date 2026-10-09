@@ -80,4 +80,27 @@ class JourneyUiTests {
             file.outputStream().use { image.compress(Bitmap.CompressFormat.PNG, 100, it) }
         }
     }
+
+    @Test fun diplomacyHasOneEditableFieldAndKeepsLegacyPartialVisible() {
+        var saved: CourseEntity? = null
+        val diploma = p.copy(name = "الدراسات الدولية والدبلوماسية – التعليم المفتوح",
+            gradingScheme = DiplomacyCurriculum.GRADING_SCHEME, passingGrade = 50.0)
+        compose.setContent {
+            AcademicJourneyTheme {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    GradeEntryCard(c, diploma) { saved = it }
+                }
+            }
+        }
+        compose.onAllNodes(hasSetTextAction()).assertCountEquals(1)
+        compose.onNodeWithText("العملي المحفوظ سابقًا").assertExists()
+        compose.onNodeWithText("لم يتم إدخال الدرجة النهائية بعد.").assertExists()
+        compose.onNode(hasSetTextAction() and hasText("الدرجة النهائية")).performScrollTo().performTextInput("76.1")
+        compose.onNodeWithText("حفظ الدرجة النهائية").performScrollTo().performClick()
+        compose.runOnIdle {
+            assertEquals(76.1, saved!!.directGrade!!, 0.0001)
+            assertEquals(20.0, saved!!.practicalGrade!!, 0.0)
+            assertEquals(77.0, GradeCalculator.calculate(saved!!, diploma).finalGrade!!, 0.0)
+        }
+    }
 }
