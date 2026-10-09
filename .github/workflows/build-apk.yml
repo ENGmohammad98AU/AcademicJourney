@@ -3,7 +3,7 @@ name: Build Android APK
 on:
   workflow_dispatch:
   push:
-    branches: [ "main", "master", "codex/v1.5.0" ]
+    branches: [ "main", "master", "codex/v1.5.0", "codex/v1.5.1" ]
 
 jobs:
   build:
