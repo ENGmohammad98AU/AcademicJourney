@@ -2311,10 +2311,10 @@ private fun reportPdfFileName(label: String): String {
     return "AcademicJourney-$safeLabel-$stamp.pdf"
 }
 private fun courseIdentifierLabel(program: ProgramEntity): String =
-    if (
+    if (!DiplomacyCurriculum.isProgramme(program.name) && (
         program.gradingScheme == GradeCalculator.SVU_WEIGHTED ||
         program.gradingScheme == GradeCalculator.SINGLE_FINAL_GRADE
-    ) "رمز المقرر" else "رقم المقرر"
+    )) "رمز المقرر" else "رقم المقرر"
 private fun arabicOrdinal(year: Int): String = when (year) { 1 -> "الأولى"; 2 -> "الثانية"; 3 -> "الثالثة"; 4 -> "الرابعة"; 5 -> "الخامسة"; else -> year.toString() }
 
 

@@ -138,7 +138,9 @@ fun GradeEntryCard(course: CourseEntity, program: ProgramEntity, onSave: (Course
         }
     } else null
     val preview = previewCourse?.let { GradeCalculator.calculate(it, program) }
-    val partialPreview = if (!singleField && !hasInvalidField && validation == null) {
+    val partialPreview = if (direct && first.isBlank() && course.directGrade == null) {
+        PartialGradePreviewBuilder.forCourse(course, program)
+    } else if (!singleField && !hasInvalidField && validation == null) {
         PartialGradePreviewBuilder.build(
             buildList {
                 add(firstLabel to firstNumber)
@@ -150,7 +152,7 @@ fun GradeEntryCard(course: CourseEntity, program: ProgramEntity, onSave: (Course
         null
     }
 
-    val hasExisting = existingFirst != null || existingSecond != null || existingThird != null
+    val hasExisting = existingFirst != null || existingSecond != null || existingThird != null || partialPreview != null
 
     ElevatedCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -237,6 +239,7 @@ fun GradeEntryCard(course: CourseEntity, program: ProgramEntity, onSave: (Course
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                        if (direct) Text("هذه القيم محفوظة من النظام السابق للمراجعة. أدخل الدرجة النهائية في الحقل الموحد أعلاه.", style = MaterialTheme.typography.bodySmall)
                         Text(
                             "النتيجة الحالية (غير مكتملة)",
                             style = MaterialTheme.typography.titleMedium,

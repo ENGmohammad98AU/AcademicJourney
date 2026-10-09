@@ -15,10 +15,12 @@ import android.webkit.WebViewClient
 import com.academicjourney.app.BuildConfig
 import com.academicjourney.app.R
 import com.academicjourney.app.data.CourseEntity
+import com.academicjourney.app.data.DiplomacyCurriculum
 import com.academicjourney.app.data.HighSchoolGradeEntity
 import com.academicjourney.app.data.ProgramEntity
 import com.academicjourney.app.domain.GradeCalculator
 import com.academicjourney.app.domain.HighSchoolCalculator
+import com.academicjourney.app.domain.PartialGradePreviewBuilder
 import com.academicjourney.app.domain.ProjectGradePolicy
 import com.academicjourney.app.domain.StudentStandingCalculator
 import java.io.ByteArrayOutputStream
@@ -67,10 +69,10 @@ object ReportPrinter {
         program: ProgramEntity,
         courses: List<CourseEntity>
     ): String {
-        val identifierLabel = if (
+        val identifierLabel = if (!DiplomacyCurriculum.isProgramme(program.name) && (
             program.gradingScheme == GradeCalculator.SVU_WEIGHTED ||
             program.gradingScheme == GradeCalculator.SINGLE_FINAL_GRADE
-        ) "رمز المقرر" else "رقم المقرر"
+        )) "رمز المقرر" else "رقم المقرر"
         val sorted = courses.sortedWith(compareBy<CourseEntity> { it.academicYear }.thenBy { it.semester }.thenBy { it.name })
         val results = sorted.map { GradeCalculator.calculate(it, program) }
         val standing = StudentStandingCalculator.calculate(universityName, program, courses)
@@ -429,6 +431,12 @@ object ReportPrinter {
     }
 
     private fun gradeComponents(course: CourseEntity, program: ProgramEntity): String {
+        if (program.gradingScheme == GradeCalculator.SINGLE_FINAL_GRADE) {
+            PartialGradePreviewBuilder.forCourse(course, program)?.let { previous ->
+                return previous.entered.joinToString("<br>") { "${escape(it.label)}: <b>${formatGrade(it.value)}</b>" } +
+                    "<br>" + escape(previous.missingNotice)
+            }
+        }
         val components = if (ProjectGradePolicy.usesSingleProjectGrade(course, program)) {
             listOf("درجة المشروع" to ProjectGradePolicy.displayedGrade(course, program))
         } else {
