@@ -36,7 +36,8 @@ object AcademicBackupManager {
         val originalHighSchool: List<HighSchoolGradeEntity>,
         val events: List<AcademicEventEntity>,
         val history: List<GradeChangeEntity>,
-        val archives: List<SemesterArchiveEntity>
+        val archives: List<SemesterArchiveEntity>,
+        val sourceDescription: String = "نسخة احتياطية JSON"
     )
 
     fun write(
@@ -50,6 +51,21 @@ object AcademicBackupManager {
         history: List<GradeChangeEntity> = emptyList(),
         archives: List<SemesterArchiveEntity> = emptyList()
     ) {
+        val root = encode(universities, programs, courses, highSchoolGrades, events, history, archives)
+        context.contentResolver.openOutputStream(uri, "wt")?.use { stream ->
+            stream.writer(Charsets.UTF_8).buffered().use { it.write(root.toString(2)) }
+        } ?: error("تعذر فتح الملف المحدد للكتابة.")
+    }
+
+    fun encode(
+        universities: List<UniversityEntity>,
+        programs: List<ProgramEntity>,
+        courses: List<CourseEntity>,
+        highSchoolGrades: List<HighSchoolGradeEntity>,
+        events: List<AcademicEventEntity> = emptyList(),
+        history: List<GradeChangeEntity> = emptyList(),
+        archives: List<SemesterArchiveEntity> = emptyList()
+    ): JSONObject {
         val universitiesById = universities.associateBy { it.id }
         val programsById = programs.associateBy { it.id }
 
@@ -95,7 +111,7 @@ object AcademicBackupManager {
             })
         }
 
-        val root = JSONObject().apply {
+        return JSONObject().apply {
             put("formatId", FORMAT_ID)
             put("schemaVersion", SCHEMA_VERSION)
             put("applicationId", BuildConfig.APPLICATION_ID)
@@ -107,9 +123,6 @@ object AcademicBackupManager {
             put("journey", JourneyBackup.encode(events, history, archives))
         }
 
-        context.contentResolver.openOutputStream(uri, "wt")?.use { stream ->
-            stream.writer(Charsets.UTF_8).buffered().use { it.write(root.toString(2)) }
-        } ?: error("تعذر فتح الملف المحدد للكتابة.")
     }
 
     fun readAndPlan(
@@ -120,23 +133,19 @@ object AcademicBackupManager {
         currentCourses: List<CourseEntity>,
         currentHighSchoolGrades: List<HighSchoolGradeEntity>
     ): RestorePlan {
-        val json = context.contentResolver.openInputStream(uri)?.use { stream ->
-            stream.reader(Charsets.UTF_8).buffered().use { reader ->
-                val buffer = CharArray(8192)
-                val text = StringBuilder()
-                while (true) {
-                    val n = reader.read(buffer)
-                    if (n < 0) break
-                    require(text.length + n <= MAX_BACKUP_CHARACTERS) { "ملف النسخة الاحتياطية أكبر من الحد المسموح." }
-                    text.append(buffer, 0, n)
-                }
-                text.toString()
-            }
-        } ?: error("تعذر فتح ملف النسخة الاحتياطية.")
-        require(json.length <= MAX_BACKUP_CHARACTERS) { "ملف النسخة الاحتياطية أكبر من الحد المسموح." }
+        val input = AcademicImportFile.read(context, uri)
+        return plan(input.json, universities, programs, currentCourses, currentHighSchoolGrades)
+            .copy(sourceDescription = input.sourceDescription)
+    }
 
-        val root = runCatching { JSONObject(json) }
-            .getOrElse { error("الملف المحدد ليس نسخة احتياطية صالحة للتطبيق.") }
+    fun plan(
+        root: JSONObject,
+        universities: List<UniversityEntity>,
+        programs: List<ProgramEntity>,
+        currentCourses: List<CourseEntity>,
+        currentHighSchoolGrades: List<HighSchoolGradeEntity>
+    ): RestorePlan {
+        require(root.toString().length <= MAX_BACKUP_CHARACTERS) { "بيانات الاستعادة أكبر من الحد المسموح." }
         require(root.optString("formatId") == FORMAT_ID) {
             "هوية ملف النسخة الاحتياطية لا تطابق تطبيق مسيرتي الأكاديمية."
         }
@@ -197,6 +206,7 @@ object AcademicBackupManager {
             val notes = item.optString("notes", current.notes).also {
                 require(it.length <= 50_000) { "ملاحظة مقرر أطول من الحد المسموح." }
             }
+            require(current.id !in restoredCourses) { "المقرر ${current.name} مكرر في الملف. لم يتم تغيير أي بيانات." }
             restoredCourses[current.id] = current.copy(
                 practicalGrade = item.nullableGrade("practicalGrade"),
                 theoryGrade = item.nullableGrade("theoryGrade"),
@@ -237,10 +247,14 @@ object AcademicBackupManager {
             require(grade == null || grade in 0..current.maxGrade) {
                 "درجة ${current.subject} خارج المجال 0–${current.maxGrade}."
             }
+            require(current.id !in restoredHighSchool) { "مادة الثانوية ${current.subject} مكررة في الملف." }
             restoredHighSchool[current.id] = current.copy(grade = grade)
             if (item.has("sourceId")) schoolIds[item.getLong("sourceId")] = current.id
         }
 
+        require(restoredCourses.isNotEmpty() || restoredHighSchool.isNotEmpty()) {
+            "لا يحتوي الملف درجات لمقررات مطابقة للبرامج الموجودة في التطبيق. لم يتم تغيير أي بيانات."
+        }
         val extras = JourneyBackup.decode(root.optJSONObject("journey"), courseIds, programIds, schoolIds, currentCourses, currentHighSchoolGrades, programs, upgradeLegacyDiplomacy = schemaVersion < 3)
         val differences = restoredCourses.values.flatMap { updated ->
             val old = currentCourses.first { it.id == updated.id }
