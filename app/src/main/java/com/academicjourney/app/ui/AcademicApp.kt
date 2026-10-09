@@ -156,7 +156,7 @@ fun AcademicApp(vm: AcademicViewModel, openCourse: Long = 0, openProgram: Long =
         val stamp = SimpleDateFormat("yyyyMMdd-HHmm", Locale.US).format(Date())
         createBackupLauncher.launch("AcademicJourney-backup-$stamp.json")
     }
-    val importBackup = { restoreBackupLauncher.launch(arrayOf("application/json", "text/plain")) }
+    val importBackup = { restoreBackupLauncher.launch(arrayOf("application/pdf", "application/json", "text/plain", "application/octet-stream")) }
 
     LaunchedEffect(Unit) { vm.ensureSeeded() }
     LaunchedEffect(launchToken) {
@@ -649,7 +649,7 @@ private fun BackupCard(
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("حماية البيانات", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             Text(
-                "ملف PDF مناسب للعرض والطباعة. أما ملف النسخة الاحتياطية JSON فيحفظ العلامات والملاحظات وأرقام المقررات ويمكن استعادته داخل التطبيق بعد التثبيت أو التحديث.",
+                "يمكن استيراد تقارير PDF الجديدة لاستعادة درجات الفرع وملاحظاته. نسخة JSON شاملة لكل البرامج والمواعيد والسجل والأرشيف. تظهر معاينة قبل تطبيق الاستعادة، وتبقى التقارير القديمة متاحة للعرض والطباعة.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -658,7 +658,7 @@ private fun BackupCard(
                     Text("تصدير نسخة احتياطية", fontWeight = FontWeight.Bold)
                 }
                 InteractiveOutlinedButton(onClick = onImportBackup, modifier = Modifier.weight(1f)) {
-                    Text("استعادة نسخة", fontWeight = FontWeight.Bold)
+                    Text("استيراد PDF أو JSON", fontWeight = FontWeight.Bold)
                 }
             }
             if (!message.isNullOrBlank()) {

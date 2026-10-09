@@ -185,6 +185,7 @@ class AcademicViewModel(app: Application) : AndroidViewModel(app) {
     fun importBackup(uri: Uri, onResult: (String) -> Unit) = viewModelScope.launch {
         if (restoreBusy.value) return@launch
         restoreBusy.value = true
+        restorePreview.value = null
         val result = runCatching {
             withContext(Dispatchers.IO) {
                 database.withTransaction {

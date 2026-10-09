@@ -65,9 +65,9 @@ fun JourneyMoreScreen(vm: AcademicViewModel, programs: List<ProgramEntity>, univ
             } }
             item { PearlCard {
                 JourneyHeading("النسخ الاحتياطي والاستعادة", if (lastBackup > 0) "آخر تصدير ناجح: ${journeyDate(lastBackup)}" else "لم تُصدّر نسخة احتياطية من هذا الإصدار بعد.")
-                Text("تشمل النسخة العلامات والملاحظات والمواد الحالية والمواعيد وسجل التعديلات والأرشيف.", style = MaterialTheme.typography.bodySmall)
+                Text("نسخة JSON تشمل جميع البرامج والمواعيد والسجل والأرشيف. تقارير PDF الجديدة تستعيد درجات الفرع وملاحظاته فقط، بعد معاينة الفروق.", style = MaterialTheme.typography.bodySmall)
                 Button(onClick = onExport, Modifier.fillMaxWidth()) { Text("تصدير نسخة احتياطية") }
-                OutlinedButton(onClick = onImport, Modifier.fillMaxWidth()) { Text("معاينة نسخة واستعادتها") }
+                OutlinedButton(onClick = onImport, Modifier.fillMaxWidth()) { Text("استيراد PDF أو JSON") }
                 if (backupMessage != null) Text(backupMessage, style = MaterialTheme.typography.bodySmall)
             } }
             item { PearlCard(onClick = onDates) { JourneyHeading("مواعيد الامتحانات والوظائف", "عرض المواعيد والتنبيهات وتعديلها") } }
@@ -286,6 +286,7 @@ fun ArchiveScreen(archives: List<SemesterArchiveEntity>, onBack: () -> Unit) {
 fun RestorePreviewDialog(plan: AcademicBackupManager.RestorePlan, busy: Boolean, onApply: () -> Unit, onCancel: () -> Unit) {
     AlertDialog(onDismissRequest = { if (!busy) onCancel() }, title = { Text("معاينة الاستعادة") },
         text = { LazyColumn(Modifier.heightIn(max = 440.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            item { Text(plan.sourceDescription, fontWeight = FontWeight.Bold) }
             item { Text("تاريخ النسخة (UTC): ${plan.createdAt}") }
             item { Text("${plan.restoredCourseCount} مقررًا مطابقًا • ${plan.restoredHighSchoolCount} مادة ثانوية • ${plan.skippedCount} سجلًا غير مطابق") }
             item { Text("${plan.history.size} تعديلًا جديدًا في السجل • ${plan.archives.size} لقطة جديدة في الأرشيف • ${plan.events.size} موعدًا في الملف") }
