@@ -1,6 +1,7 @@
 package com.academicjourney.app.domain
 
 import com.academicjourney.app.data.CourseEntity
+import com.academicjourney.app.data.DiplomacyCurriculum
 import com.academicjourney.app.data.ProgramEntity
 
 data class EnteredGradeComponent(
@@ -31,6 +32,14 @@ object PartialGradePreviewBuilder {
     }
 
     fun forCourse(course: CourseEntity, program: ProgramEntity): PartialGradePreview? {
+        if (program.gradingScheme == GradeCalculator.SINGLE_FINAL_GRADE &&
+            DiplomacyCurriculum.isProgramme(program.name) && course.directGrade == null) {
+            val previous = listOfNotNull(
+                course.practicalGrade?.let { EnteredGradeComponent("العملي المحفوظ سابقًا", it) },
+                course.theoryGrade?.let { EnteredGradeComponent("النظري المحفوظ سابقًا", it) }
+            )
+            if (previous.isNotEmpty()) return PartialGradePreview(previous, listOf("الدرجة النهائية"))
+        }
         if (
             ProjectGradePolicy.usesSingleProjectGrade(course, program) ||
             program.gradingScheme == GradeCalculator.SINGLE_FINAL_GRADE
